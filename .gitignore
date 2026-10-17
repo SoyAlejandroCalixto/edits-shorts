@@ -1,0 +1,10 @@
+# Entorno
+.venv/
+__pycache__/
+
+# Efímero y vídeos (no se versionan; las carpetas se conservan con .gitkeep)
+brutos/*
+trabajo/*
+salida/*
+imagenes/*
+!*/.gitkeep
