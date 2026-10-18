@@ -15,8 +15,8 @@ meme; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra d
 - `recursos/cam shot.wav`, `fuentes/SofiaSans-BlackItalic.ttf`, `motor/` scripts y `config.json`.
 
 ## Entorno
-- Python 3.12 + venv `.venv` con mise: `mise exec -- python ...` desde la raíz.
-  Dependencias: `mise exec -- uv pip install faster-whisper "av<16" numpy soundfile`.
+- Python 3.12 + venv `.venv` con mise (en el PATH, activa el venv solo): `python ...` desde la raíz.
+  Dependencias: `uv pip install faster-whisper "av<16" numpy soundfile`.
 - ffmpeg en PATH (rutas relativas a la raíz en los filtros). GPU AMD: codifica con `h264_amf`.
 
 Para borrar lo efímero tras cada vídeo (salida/, trabajo/) usa la skill `limpiar` (`motor/limpiar.py`).

@@ -5,7 +5,7 @@ description: Limpia los residuos del proyecto tras terminar un vídeo (salida/, 
 
 # Limpiar
 
-1. Ejecuta `mise exec -- python motor/limpiar.py` desde la raíz: vacía `salida/` y `trabajo/` (las carpetas se
+1. Ejecuta `python motor/limpiar.py` desde la raíz: vacía `salida/` y `trabajo/` (las carpetas se
    quedan) y borra `motor/__pycache__`.
 2. Solo si el usuario pide borrar también los brutos ("limpia todo", "borra también los brutos"), añade `--brutos`
    (vacía `brutos/` e `imagenes/`).
