@@ -94,6 +94,21 @@ def factor_camara(zooms) -> str:
     return expr
 
 
+def alinear_pantalla(tramos: list[dict], fronteras: list[float]) -> list[dict]:
+    """Mueve cada cambio de recorte al inicio de frase más cercano a ≤ 3 s (salvo "exacto": true) y quita los que se
+    pisan."""
+    out = []
+    for p in sorted(tramos, key=lambda p: p["desde"]):
+        cerca = [f for f in fronteras if abs(f - p["desde"]) <= 3.0]
+        if p["desde"] > 0 and not p.get("exacto") and cerca:
+            p = {**p, "desde": min(cerca, key=lambda f: abs(f - p["desde"]))}
+        if out and p["desde"] <= out[-1]["desde"]:
+            out[-1] = p
+        else:
+            out.append(p)
+    return out
+
+
 def pantalla_expr(tramos: list[dict], clave) -> str:
     """Valor por tramos de pantalla (escala, centro x o centro y) en función de t."""
     tramos = sorted(tramos, key=lambda p: p["desde"])
@@ -177,13 +192,18 @@ def main():
 
     zooms = dec.get("zooms") or tramos_zoom(palabras, dur)
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
+    pant = alinear_pantalla(pant, fronteras_frase(palabras))
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
     cx = pantalla_expr(pant, lambda p: p["centro"][0])
     cy = pantalla_expr(pant, lambda p: p["centro"][1])
     fcam = factor_camara(zooms)
     zz = en_zoom(zooms)
 
-    completa = [{**c, "a": tiempo(c["desde"]), "b": tiempo(c["hasta"])} for c in dec.get("completa", [])]
+    # Medio fotograma antes: los cortes del bruto caen justo en un fotograma (2.6667) y redondeado a 3 decimales
+    # (2.667) se perdía el primero, que salía partido (cámara ya con el meme, abajo todavía sin él)
+    medio = 0.5 / FPS
+    completa = [{**c, "a": tiempo(c["desde"]) - medio, "b": tiempo(c["hasta"]) - medio}
+                for c in dec.get("completa", [])]
     ass = trabajo / "subs.ass"
     escribir_ass(subs, ass)
 
@@ -216,7 +236,8 @@ def main():
             cw = round(1080 * W / H / 2) * 2
             x = max(0, min(1920 - cw, c["centro"][0] - cw // 2))
             ajuste = f"crop={cw}:1080:{x}:0,scale={W}:{H}"
-        fc.append(f"[vf{k}]trim={c['a']:.3f}:{c['b']:.3f},{ajuste},setsar=1,format=yuv420p[c{k}]")
+        # Un fotograma de más: overlay descarta el último fotograma de la capa al llegar a su fin (el "enable" corta)
+        fc.append(f"[vf{k}]trim={c['a']:.3f}:{c['b'] + 1 / FPS:.3f},{ajuste},setsar=1,format=yuv420p[c{k}]")
         encima.append((f"c{k}", c["a"], c["b"]))
     # La capa de abajo baja con la cámara en mini-zoom y se centra en el hueco que queda
     fc.append(f"[lienzo][{ult}]overlay=x=0:y='{CAM_H}+({CAM_HZ}-{CAM_H})/2*({zz})':eval=frame[l1]")

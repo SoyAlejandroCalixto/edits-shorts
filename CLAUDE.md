@@ -5,7 +5,7 @@ cambiar un short usa la skill `editar-short` (`.claude/skills/editar-short/SKILL
 
 Estilo (automático en `motor/render.py`): cámara arriba (recorte fijo del bruto, ver `motor/config.json`) con
 mini-zoom que entra y sale solo al empezar frase (frases cortas juntas, ≥ 2,5 s) y zoom lento; pantalla abajo
-recortada sobre lo importante; imágenes del usuario siempre abajo, debajo de la cara, con `recursos/cam shot.wav`;
+recortada sobre lo importante, con los cambios de plano también al empezar frase; imágenes del usuario siempre abajo, debajo de la cara, con `recursos/cam shot.wav`;
 memes del bruto estirados a toda la pantalla 1080x1920 aunque se deformen, salvo lo que el usuario diga que no es
 meme; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra dura y halo negro difuminado.
 

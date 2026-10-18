@@ -35,7 +35,11 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    diga que NO es meme (foto/clip real) no se estira: `"modo": "proporcion", "centro": [x, y]` (recorte 9:16 centrado
    en lo que pida). Una imagen del usuario que sí sea meme → `"modo": "estirar"`.
 5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
-   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. Los subtítulos
+   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Los cambios de
+   recorte de abajo (`pantalla`) siguen la misma regla**: el render mueve cada `desde` al inicio de frase más cercano
+   (≤ 3 s; `"exacto": true` para no moverlo). Pon pocos tramos: cambia de plano solo cuando cambie de verdad lo que
+   se ve, no por cada detalle. Los tramos `completa` se ajustan solos al fotograma exacto del corte del bruto (sin
+   fotogramas partidos al empezar o acabar un meme): usa los tiempos de `scdet` tal cual. Los subtítulos
    llevan, además de la sombra dura negra, un halo negro difuminado semitransparente sin desplazamiento
    (`subtitulos.difusa` en `config.json`) para leerse sobre fondos amarillos o claros.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).
