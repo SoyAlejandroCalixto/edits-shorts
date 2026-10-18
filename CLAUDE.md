@@ -4,8 +4,10 @@ Convierte fragmentos de los vídeos largos en YouTube Shorts 1080x1920@30 con el
 cambiar un short usa la skill `editar-short` (`.claude/skills/editar-short/SKILL.md`).
 
 Estilo (automático en `motor/render.py`): cámara arriba (recorte fijo del bruto, ver `motor/config.json`) con
-mini-zoom periódico y zoom lento; pantalla abajo recortada sobre lo importante; imágenes del usuario abajo con
-`recursos/cam shot.wav`; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra.
+mini-zoom que entra y sale solo al empezar frase (frases cortas juntas, ≥ 2,5 s) y zoom lento; pantalla abajo
+recortada sobre lo importante; imágenes del usuario siempre abajo, debajo de la cara, con `recursos/cam shot.wav`;
+memes del bruto estirados a toda la pantalla 1080x1920 aunque se deformen, salvo lo que el usuario diga que no es
+meme; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra dura y halo negro difuminado.
 
 ## Carpetas
 - `brutos/` fragmentos ya recortados (1920x1080). `imagenes/` imágenes que pasa el usuario.

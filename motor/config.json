@@ -4,20 +4,20 @@
   "zoom": {
     "factor": 1.316,
     "lento_por_segundo": 0.02,
-    "dur_normal": [6.0, 9.0],
-    "dur_zoom": [3.0, 5.0],
-    "empieza_con_zoom": true,
-    "semilla": 3
+    "frase_min": 2.5,
+    "empieza_con_zoom": true
   },
   "pantalla_por_defecto": {"centro": [640, 520], "ancho": 1000},
   "imagen_min_dur": 2.0,
+  "imagen_modo": "abajo",
   "subtitulos": {
     "max_palabras": 4,
     "max_caracteres": 22,
     "y": 1632,
     "tam": 78,
     "color": "&H0000F2FF",
-    "sombra": 9
+    "sombra": 9,
+    "difusa": {"borde": 6, "blur": 8, "alfa": "&H80&"}
   },
   "encoder": ["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak", "-b:v", "12M", "-maxrate", "16M"]
 }

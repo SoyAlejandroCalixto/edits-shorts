@@ -26,6 +26,18 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
    la palabra que indique. Duran automáticamente hasta el fin de frase que deje ≥ 2 s; suenan con cam shot.
+   Tiempos del usuario tipo `0:41:18` = M:SS:fotogramas a 60 fps (41,30 s); "entre X e Y" → `"t"` + `"hasta"`.
+   **Las imágenes que pasa el usuario son imágenes normales, no memes: van siempre abajo, debajo de su cara, como si
+   las comentara** (modo `"abajo"`, el de por defecto). Solo se estira una imagen si el usuario dice que es un meme.
+5b. **Memes estirados (regla del canal)**: los memes que ya vienen en el bruto a pantalla completa (detectados con los
+   cambios de escena) van **estirados a toda la pantalla 1080x1920 aunque se deformen**, en plan shitpost, tapando
+   cámara y pantalla (subtítulos encima): `"completa": [{"desde", "hasta", "modo": "estirar"}]`. Lo que el usuario
+   diga que NO es meme (foto/clip real) no se estira: `"modo": "proporcion", "centro": [x, y]` (recorte 9:16 centrado
+   en lo que pida). Una imagen del usuario que sí sea meme → `"modo": "estirar"`.
+5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
+   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. Los subtítulos
+   llevan, además de la sombra dura negra, un halo negro difuminado semitransparente sin desplazamiento
+   (`subtitulos.difusa` en `config.json`) para leerse sobre fondos amarillos o claros.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).
 7. **Renderiza**: `mise exec -- python motor/render.py trabajo/<slug>` → `salida/short-N.mp4` (~15 s).
 8. **Verifica**: `mise exec -- python motor/ver.py salida/short-N.mp4 --cada 3 --ancho 216` y mira la hoja una vez:
