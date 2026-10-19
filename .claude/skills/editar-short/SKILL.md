@@ -55,7 +55,7 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
 5d. **Títulos** (solo si el usuario los pide): texto grande en el centro de la pantalla, misma fuente, sombra y halo
    que los subtítulos (`config.json` → `titulo`): `"titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]`
    en MAYÚSCULAS; `\\N` en el JSON = salto de línea (la línea que pida abajo). **Estilo fijo del canal**: blanco por
-   defecto (`"color": "#RRGGBB"` si pide otro), tamaño 130 siempre, líneas juntas (`interlineado` 0,92), entra con
+   defecto (`"color": "#RRGGBB"` si pide otro), tamaño 130 siempre, líneas juntas (`interlineado` 0,74: la parte alta de la línea de abajo queda a ~mitad del hueco entre ambas), entra con
    zoom-in rápido de 0,2 s con ease-in (de menos a más rápido, `aceleracion` 2) y sonido `recursos/swoosh.wav`, y
    luego zoom lento constante (hasta ×1,08) hasta desaparecer de golpe, sin transición.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).

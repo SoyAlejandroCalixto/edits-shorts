@@ -10,7 +10,7 @@
   "cortes": {"min": 4, "fuerza": 10, "fuerza_sola": 30, "margen": 0.25},
   "pantalla_por_defecto": {"centro": [640, 520], "ancho": 1000},
   "ajuste_imagen": 0.3,
-  "titulo": {"y": 960, "tam": 130, "sombra": 12, "color": "#FFFFFF", "interlineado": 0.92, "entrada_ms": 200, "aceleracion": 2,
+  "titulo": {"y": 960, "tam": 130, "sombra": 12, "color": "#FFFFFF", "interlineado": 0.74, "entrada_ms": 200, "aceleracion": 2,
              "zoom_final": 1.08},
   "imagen_min_dur": 2.0,
   "imagen_modo": "abajo",
