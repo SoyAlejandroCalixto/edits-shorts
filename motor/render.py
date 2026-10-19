@@ -305,10 +305,11 @@ def main():
         ancho, alto = (W, H) if im["modo"] == "estirar" else (W, BOT)
         ajuste = f"scale={W}:{H}" if im["modo"] == "estirar" else             f"scale={W}:{BOT}:force_original_aspect_ratio=increase,crop={W}:{BOT}"
         # Aparece y desaparece de golpe; mientras está, zoom lento constante (como los títulos) desde el centro.
-        # crop no ve el tamaño que crece fotograma a fotograma (iw/ih son los iniciales): el offset va explícito.
-        z = f"(1+{CONFIG['zoom_imagen_por_segundo']}*t)"
-        ajuste += (f",scale=w='trunc({ancho}*{z}/2)*2':h='trunc({alto}*{z}/2)*2':eval=frame,"
-                   f"crop={ancho}:{alto}:x='(trunc({ancho}*{z}/2)*2-{ancho})/2':y='(trunc({alto}*{z}/2)*2-{alto})/2'")
+        # Con perspective (remuestreo subpíxel): con scale+crop el tamaño y el recorte van a píxeles enteros
+        # y la imagen vibra. m = margen recortado a cada lado, en fracción del tamaño.
+        m = f"((1-1/(1+{CONFIG['zoom_imagen_por_segundo']}*in/{FPS}))/2)"
+        ajuste += (f",format=gbrp,perspective=x0='W*{m}':y0='H*{m}':x1='W*(1-{m})':y1='H*{m}':"
+                   f"x2='W*{m}':y2='H*(1-{m})':x3='W*(1-{m})':y3='H*(1-{m})':interpolation=cubic:eval=frame")
         fc.append(f"[{k}:v]{ajuste},setsar=1,format=yuv420p,setpts=PTS-STARTPTS+{im['a']:.3f}/TB[i{k}]")
         if im["modo"] == "estirar":
             encima.append((f"i{k}", im["a"], im["b"]))
