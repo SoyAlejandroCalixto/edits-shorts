@@ -14,6 +14,8 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
   "zooms": [[2.0, 5.5], ...]                                              opcional: fuerza los tramos de mini-zoom
+  "titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]  título grande en el centro (\\N = salto
+                 de línea)
 }
 Tiempos "t": "L5" = inicio de la línea, "L5:3" = inicio de su palabra 3 (0 = primera), o segundos.
 """
@@ -57,20 +59,56 @@ INICIOS = set("""y o pero que lo la el los las es fue era sea no ni han ha hay n
     además entonces porque pues culpa tú te yo a en con para por si cuando como mientras luego claro""".split())
 
 
-def fronteras_frase(palabras: list[dict]) -> list[float]:
-    """Inicios de frase: tras coma, punto, etc. o en una palabra en mayúscula que suele abrir frase."""
+def cortes_camara(video: Path) -> list[tuple[float, float]]:
+    """Cortes del bruto (jump cuts) vistos en la cámara: [(t del primer fotograma nuevo, fuerza), ...].
+    Fuerza = diferencia entre fotogramas / mediana local; un gesto da picos con la mediana alta, un corte no."""
+    import numpy as np
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=r_frame_rate",
+                        "-of", "csv=p=0", str(video)], capture_output=True, text=True, check=True)
+    num, _, den = r.stdout.split()[0].partition("/")
+    fps = float(num) / float(den or 1)
+    w, h = 138, 104
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vf",
+                        f"crop={CAM['w']}:{CAM['h']}:{CAM['x']}:{CAM['y']},scale={w}:{h},format=gray",
+                        "-f", "rawvideo", "-"], capture_output=True, check=True)
+    f = np.frombuffer(r.stdout, np.uint8).reshape(-1, h, w).astype(np.float32)
+    d = np.abs(np.diff(f, axis=0)).mean(axis=(1, 2))
+    C = CONFIG["cortes"]
+    out = []
+    for i in range(len(d)):
+        fuerza = d[i] / max(float(np.median(d[max(0, i - 15):i + 16])), 0.1)
+        if d[i] >= C["min"] and fuerza >= C["fuerza"] and d[i] == d[max(0, i - 3):i + 4].max():
+            out.append(((i + 1) / fps, fuerza))
+    return out
+
+
+def fronteras_frase(palabras: list[dict], cortes=()) -> list[float]:
+    """Inicios de frase: tras coma, punto, etc. o en una palabra en mayúscula que suele abrir frase.
+    Si hay un corte del bruto entre la palabra anterior y la que abre frase, la frontera es el corte (Whisper da el
+    inicio de palabra hasta ~0,25 s tarde y el zoom quedaba desfasado del corte). Un corte fuerte en una pausa también
+    abre frase aunque el texto no lo marque."""
+    C = CONFIG["cortes"]
     out = []
     for a, b in zip(palabras, palabras[1:]):
         w = b["w"].strip("¿¡\"'")
-        if re.search(r"[,.;:?!…]$", a["w"]) or (w[:1].isupper() and w.lower().strip(",.") in INICIOS):
+        texto = bool(re.search(r"[,.;:?!…]$", a["w"]) or (w[:1].isupper() and w.lower().strip(",.") in INICIOS))
+        m = C["margen"] if texto else 0.1   # sin puntuación, solo si el corte cae en la pausa entre palabras
+        cerca = [(t, f) for t, f in cortes if a["e"] - m <= t <= b["s"] + m and (texto or f >= C["fuerza_sola"])]
+        if cerca:
+            t = min(cerca, key=lambda c: abs(c[0] - b["s"]))[0]   # el corte suele caer justo antes de hablar
+            if not out or t - 0.002 > out[-1]:
+                # Un pelo antes del fotograma del corte: con 3 decimales (1.567 > 1.5667) se perdía el primero
+                out.append(t - 0.002)
+            continue
+        if texto:
             out.append(b["s"])
     return out
 
 
-def tramos_zoom(palabras: list[dict], dur: float) -> list[list[float]]:
+def tramos_zoom(fronteras: list[float], dur: float) -> list[list[float]]:
     """Alterna normal / mini-zoom solo en inicios de frase; las frases cortas se juntan hasta durar frase_min."""
     zoom, ini, out = Z["empieza_con_zoom"], 0.0, []
-    for t in fronteras_frase(palabras):
+    for t in fronteras:
         if t - ini >= Z["frase_min"] and dur - t >= Z["frase_min"]:
             if zoom:
                 out.append([ini, t])
@@ -118,7 +156,18 @@ def pantalla_expr(tramos: list[dict], clave) -> str:
     return expr
 
 
-def escribir_ass(subs: list[dict], dst: Path):
+def ajustar_a_imagenes(fronteras: list[float], imagenes: list[dict]) -> list[float]:
+    """Un cambio de plano a pocos fotogramas de donde empieza o acaba una imagen se mueve justo a ese borde: si no,
+    queda un fotograma suelto con la imagen ya quitada y el plano todavía sin cambiar (o al revés)."""
+    bordes = [t for im in imagenes for t in (im["a"], im["b"])]
+    out = []
+    for f in fronteras:
+        cerca = [t for t in bordes if abs(t - f) <= CONFIG["ajuste_imagen"]]
+        out.append(min(cerca, key=lambda t: abs(t - f)) if cerca else f)
+    return sorted(set(out))
+
+
+def escribir_ass(subs: list[dict], dst: Path, titulos=()):
     def ts(s):
         return f"{int(s // 3600)}:{int(s % 3600 // 60):02d}:{s % 60:05.2f}"
     cab = f"""[Script Info]
@@ -142,6 +191,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for s in subs:
         filas.append(f"Dialogue: 0,{ts(s['s'])},{ts(s['e'])},S,,0,0,0,,{{{halo}}}{s['texto']}")
         filas.append(f"Dialogue: 1,{ts(s['s'])},{ts(s['e'])},S,,0,0,0,,{{{pos}\\blur0}}{s['texto']}")
+    # Títulos: mismo estilo que los subtítulos pero más grandes, en el centro y blancos (o el "color" "#RRGGBB" que
+    # se pida). Cada línea va en su propio Dialogue para controlar el interlineado (libass no lo permite). Entran con
+    # zoom-in rápido con ease-in (de menos a más rápido, 0 -> 100 % en entrada_ms; un evento por fotograma, porque
+    # \move es lineal) y luego crecen despacio hasta zoom_final, sin transición de salida; las líneas se separan con
+    # el mismo zoom para no pisarse.
+    T = CONFIG["titulo"]
+    for t in titulos:
+        c = t.get("color", T["color"]).lstrip("#")
+        color = f"\\1c&H{c[4:6]}{c[2:4]}{c[0:2]}&"
+        n = max(1, round(T["entrada_ms"] / 1000 * FPS))
+        medio = 0.5 / FPS   # cada evento cubre su fotograma de centro a centro (los tiempos ASS van en centésimas)
+        zf = round(T["zoom_final"] * 100)
+        partes = t["texto"].split("\\N")
+        for i, linea in enumerate(partes):
+            off = (i - (len(partes) - 1) / 2) * T["tam"] * T["interlineado"]
+            # (inicio, fin, y inicial, y final, escala inicial, escala final): fotogramas de entrada y zoom lento
+            tramos = []
+            for k in range(n):
+                z = ((k + 1) / (n + 1)) ** T["aceleracion"]
+                tramos.append((t["a"] + max(0, k - 0.5) / FPS, t["a"] + k / FPS + medio, off * z, off * z,
+                               z * 100, z * 100))
+            tramos.append((t["a"] + n / FPS - medio, t["b"], off, off * T["zoom_final"], 100, zf))
+            for a, b, y0, y1, z0, z1 in tramos:
+                ms = round((b - a) * 1000)
+                tag = (f"\\an5\\move({W // 2},{T['y'] + y0:.0f},{W // 2},{T['y'] + y1:.0f},0,{ms})\\fs{T['tam']}"
+                       f"\\fscx{z0:.1f}\\fscy{z0:.1f}\\t(0,{ms},\\fscx{z1:.1f}\\fscy{z1:.1f})")
+                filas.append(f"Dialogue: 2,{ts(a)},{ts(b)},S,,0,0,0,,{{{halo.replace(pos, tag)}}}{linea}")
+                filas.append(f"Dialogue: 3,{ts(a)},{ts(b)},S,,0,0,0,,"
+                             f"{{{tag}{color}\\shad{T['sombra']}\\blur0}}{linea}")
     dst.write_text(cab + "\n".join(filas) + "\n", encoding="utf-8")
 
 
@@ -190,9 +268,10 @@ def main():
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
 
-    zooms = dec.get("zooms") or tramos_zoom(palabras, dur)
+    fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes_camara(video)), imagenes)
+    zooms = dec.get("zooms") or tramos_zoom(fronteras, dur)
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
-    pant = alinear_pantalla(pant, fronteras_frase(palabras))
+    pant = alinear_pantalla(pant, fronteras)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
     cx = pantalla_expr(pant, lambda p: p["centro"][0])
     cy = pantalla_expr(pant, lambda p: p["centro"][1])
@@ -205,7 +284,8 @@ def main():
     completa = [{**c, "a": tiempo(c["desde"]) - medio, "b": tiempo(c["hasta"]) - medio}
                 for c in dec.get("completa", [])]
     ass = trabajo / "subs.ass"
-    escribir_ass(subs, ass)
+    titulos = [{**t, "a": tiempo(t["desde"]), "b": tiempo(t["hasta"])} for t in dec.get("titulos", [])]
+    escribir_ass(subs, ass, titulos)
 
     entradas = ["-i", rel(video)]
     fc = [f"color=c=black:s={W}x{H}:r={FPS}:d={dur:.3f}[lienzo]",
@@ -221,13 +301,13 @@ def main():
     ult = "p0"
     encima = []   # capas a pantalla completa por encima de la cámara: (etiqueta, a, b)
     for k, im in enumerate(imagenes, start=1):
-        entradas += ["-loop", "1", "-framerate", str(FPS), "-t", f"{im['b'] - im['a']:.3f}", "-i", im["archivo"]]
+        entradas += ["-loop", "1", "-framerate", str(FPS), "-t", f"{im['b'] - im['a'] + 1 / FPS:.3f}", "-i", im["archivo"]]
         ajuste = f"scale={W}:{H}" if im["modo"] == "estirar" else             f"scale={W}:{BOT}:force_original_aspect_ratio=increase,crop={W}:{BOT}"
         fc.append(f"[{k}:v]{ajuste},setsar=1,format=yuv420p,setpts=PTS-STARTPTS+{im['a']:.3f}/TB[i{k}]")
         if im["modo"] == "estirar":
             encima.append((f"i{k}", im["a"], im["b"]))
             continue
-        fc.append(f"[{ult}][i{k}]overlay=eof_action=pass:enable='between(t,{im['a']:.3f},{im['b']:.3f})'[p{k}]")
+        fc.append(f"[{ult}][i{k}]overlay=eof_action=pass:enable='gte(t,{im['a']:.3f})*lt(t,{im['b']:.3f})'[p{k}]")
         ult = f"p{k}"
     for k, c in enumerate(completa):
         if c.get("modo", "estirar") == "estirar":
@@ -243,14 +323,17 @@ def main():
     fc.append(f"[lienzo][{ult}]overlay=x=0:y='{CAM_H}+({CAM_HZ}-{CAM_H})/2*({zz})':eval=frame[l1]")
     fc.append("[l1][cam]overlay=0:0[e0]")
     for j, (et, a, b) in enumerate(encima, start=1):
-        fc.append(f"[e{j - 1}][{et}]overlay=0:0:eof_action=pass:enable='between(t,{a:.3f},{b:.3f})'[e{j}]")
+        fc.append(f"[e{j - 1}][{et}]overlay=0:0:eof_action=pass:enable='gte(t,{a:.3f})*lt(t,{b:.3f})'[e{j}]")
     fc.append(f"[e{len(encima)}]subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]")
 
     amix = ["[0:a]"]
     base = 1 + len(imagenes)
-    for j, im in enumerate(imagenes):
-        entradas += ["-i", "recursos/cam shot.wav"]
-        fc.append(f"[{base + j}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={round(im['a'] * 1000)}:all=1[s{j}]")
+    # Cam shot al entrar cada imagen y swoosh al zoom-in de cada título
+    sonidos = [(im["a"], "recursos/cam shot.wav") for im in imagenes] + \
+              [(t["a"], "recursos/swoosh.wav") for t in titulos]
+    for j, (a, wav) in enumerate(sonidos):
+        entradas += ["-i", wav]
+        fc.append(f"[{base + j}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={round(a * 1000)}:all=1[s{j}]")
         amix.append(f"[s{j}]")
     fc.append(f"{''.join(amix)}amix=inputs={len(amix)}:normalize=0:duration=first,alimiter=limit=0.97[aout]"
               if len(amix) > 1 else "[0:a]anull[aout]")

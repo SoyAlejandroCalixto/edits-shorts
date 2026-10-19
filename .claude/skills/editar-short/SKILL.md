@@ -27,6 +27,11 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
    la palabra que indique. Duran automáticamente hasta el fin de frase que deje ≥ 2 s; suenan con cam shot.
    Tiempos del usuario tipo `0:41:18` = M:SS:fotogramas a 60 fps (41,30 s); "entre X e Y" → `"t"` + `"hasta"`.
+   Con dos números (`01:34-04:02`) son SS:fotogramas a 60 fps (1,567–4,033 s) y suelen caer justo en cortes del bruto:
+   pon los segundos 0,002 antes del fotograma (`1.565`, `4.031`) para no perder el primero al redondear.
+   **Imagen y cambio de plano juntos (regla del canal)**: si un cambio de plano (zoom o recorte de abajo) queda a
+   ≤ `ajuste_imagen` (0,3 s) del inicio o fin de una imagen, el render lo mueve justo a ese borde; nunca debe quedar
+   un fotograma con la imagen ya quitada y el plano sin cambiar (o al revés). Verifica los fotogramas de cada borde.
    **Las imágenes que pasa el usuario son imágenes normales, no memes: van siempre abajo, debajo de su cara, como si
    las comentara** (modo `"abajo"`, el de por defecto). Solo se estira una imagen si el usuario dice que es un meme.
 5b. **Memes estirados (regla del canal)**: los memes que ya vienen en el bruto a pantalla completa (detectados con los
@@ -35,13 +40,24 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    diga que NO es meme (foto/clip real) no se estira: `"modo": "proporcion", "centro": [x, y]` (recorte 9:16 centrado
    en lo que pida). Una imagen del usuario que sí sea meme → `"modo": "estirar"`.
 5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
-   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Los cambios de
+   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Sincronía con
+   los cortes del bruto (regla del canal)**: el cambio de plano va justo cuando empieza a hablar; si el bruto tiene un
+   corte (jump cut) ahí, el zoom cambia en el fotograma exacto del corte. El render detecta los cortes en la cámara
+   (`cortes_camara`, `config.json` → `cortes`) y usa el corte en vez del inicio de palabra de Whisper (que llega hasta
+   ~0,25 s tarde); un corte muy claro en una pausa abre frase aunque no haya puntuación. Al verificar, saca los
+   fotogramas de cada cambio de zoom (`select=eq(n\,N)`) y comprueba que el corte y el zoom coinciden. **Los cambios de
    recorte de abajo (`pantalla`) siguen la misma regla**: el render mueve cada `desde` al inicio de frase más cercano
    (≤ 3 s; `"exacto": true` para no moverlo). Pon pocos tramos: cambia de plano solo cuando cambie de verdad lo que
    se ve, no por cada detalle. Los tramos `completa` se ajustan solos al fotograma exacto del corte del bruto (sin
    fotogramas partidos al empezar o acabar un meme): usa los tiempos de `scdet` tal cual. Los subtítulos
    llevan, además de la sombra dura negra, un halo negro difuminado semitransparente sin desplazamiento
    (`subtitulos.difusa` en `config.json`) para leerse sobre fondos amarillos o claros.
+5d. **Títulos** (solo si el usuario los pide): texto grande en el centro de la pantalla, misma fuente, sombra y halo
+   que los subtítulos (`config.json` → `titulo`): `"titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]`
+   en MAYÚSCULAS; `\\N` en el JSON = salto de línea (la línea que pida abajo). **Estilo fijo del canal**: blanco por
+   defecto (`"color": "#RRGGBB"` si pide otro), tamaño 130 siempre, líneas juntas (`interlineado` 0,92), entra con
+   zoom-in rápido de 0,2 s con ease-in (de menos a más rápido, `aceleracion` 2) y sonido `recursos/swoosh.wav`, y
+   luego zoom lento constante (hasta ×1,08) hasta desaparecer de golpe, sin transición.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).
 7. **Renderiza**: `python motor/render.py trabajo/<slug>` → `salida/short-N.mp4` (~15 s).
 8. **Verifica**: `python motor/ver.py salida/short-N.mp4 --cada 3 --ancho 216` y mira la hoja una vez:
