@@ -13,6 +13,7 @@
   "titulo": {"y": 960, "tam": 130, "sombra": 12, "color": "#FFFFFF", "interlineado": 0.74, "entrada_ms": 200, "aceleracion": 2,
              "zoom_final": 1.08},
   "imagen_min_dur": 2.0,
+  "zoom_imagen_por_segundo": 0.04,
   "imagen_modo": "abajo",
   "subtitulos": {
     "max_palabras": 4,

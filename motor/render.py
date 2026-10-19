@@ -302,7 +302,12 @@ def main():
     encima = []   # capas a pantalla completa por encima de la cámara: (etiqueta, a, b)
     for k, im in enumerate(imagenes, start=1):
         entradas += ["-loop", "1", "-framerate", str(FPS), "-t", f"{im['b'] - im['a'] + 1 / FPS:.3f}", "-i", im["archivo"]]
+        ancho, alto = (W, H) if im["modo"] == "estirar" else (W, BOT)
         ajuste = f"scale={W}:{H}" if im["modo"] == "estirar" else             f"scale={W}:{BOT}:force_original_aspect_ratio=increase,crop={W}:{BOT}"
+        # Aparece y desaparece de golpe; mientras está, zoom lento constante (como los títulos) centrado
+        z = f"(1+{CONFIG['zoom_imagen_por_segundo']}*t)"
+        ajuste += (f",scale=w='trunc({ancho}*{z}/2)*2':h='trunc({alto}*{z}/2)*2':eval=frame,"
+                   f"crop={ancho}:{alto}")
         fc.append(f"[{k}:v]{ajuste},setsar=1,format=yuv420p,setpts=PTS-STARTPTS+{im['a']:.3f}/TB[i{k}]")
         if im["modo"] == "estirar":
             encima.append((f"i{k}", im["a"], im["b"]))

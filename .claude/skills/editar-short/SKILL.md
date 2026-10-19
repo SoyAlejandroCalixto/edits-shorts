@@ -26,6 +26,9 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
    la palabra que indique. Duran automáticamente hasta el fin de frase que deje ≥ 2 s; suenan con cam shot.
+   **Zoom en imágenes (regla del canal)**: toda imagen o meme que pida el usuario (abajo o estirado) aparece y
+   desaparece de golpe, sin animación, y mientras está hace un zoom lento constante centrado
+   (`zoom_imagen_por_segundo` 0,04, como el de los títulos). Es automático en el render.
    Tiempos del usuario tipo `0:41:18` = M:SS:fotogramas a 60 fps (41,30 s); "entre X e Y" → `"t"` + `"hasta"`.
    Con dos números (`01:34-04:02`) son SS:fotogramas a 60 fps (1,567–4,033 s) y suelen caer justo en cortes del bruto:
    pon los segundos 0,002 antes del fotograma (`1.565`, `4.031`) para no perder el primero al redondear.

@@ -6,7 +6,8 @@ cambiar un short usa la skill `editar-short` (`.claude/skills/editar-short/SKILL
 Estilo (automático en `motor/render.py`): cámara arriba (recorte fijo del bruto, ver `motor/config.json`) con
 mini-zoom que entra y sale solo al empezar frase (frases cortas juntas, ≥ 2,5 s) y zoom lento; si el bruto tiene
 un corte (jump cut) al empezar la frase, el zoom entra o sale en el fotograma exacto del corte, nunca desfasado; pantalla abajo
-recortada sobre lo importante, con los cambios de plano también al empezar frase; imágenes del usuario siempre abajo, debajo de la cara, con `recursos/cam shot.wav`, y si un cambio de plano
+recortada sobre lo importante, con los cambios de plano también al empezar frase; imágenes del usuario siempre abajo, debajo de la cara, con `recursos/cam shot.wav`; toda imagen o meme que pida
+aparece y desaparece de golpe, sin animación, con un zoom lento constante mientras está (`zoom_imagen_por_segundo`), y si un cambio de plano
 queda cerca de su inicio o fin se mueve a ese mismo fotograma (nunca un fotograma suelto entre imagen y plano);
 títulos que pida el usuario grandes en el centro (tamaño 130, blancos salvo que pida otro color, líneas juntas: interlineado 0,74),
 con zoom-in de 0,2 s en ease-in (de menos a más rápido) sonando `recursos/swoosh.wav`, y zoom lento constante
