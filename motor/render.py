@@ -106,8 +106,9 @@ def fronteras_frase(palabras: list[dict], cortes=()) -> list[float]:
 
 
 def tramos_zoom(fronteras: list[float], dur: float) -> list[list[float]]:
-    """Alterna normal / mini-zoom solo en inicios de frase; las frases cortas se juntan hasta durar frase_min."""
-    zoom, ini, out = Z["empieza_con_zoom"], 0.0, []
+    """Alterna normal / mini-zoom solo en inicios de frase; las frases cortas se juntan hasta durar frase_min.
+    El primer plano es siempre normal (regla del canal: nunca se empieza con zoom)."""
+    zoom, ini, out = False, 0.0, []
     for t in fronteras:
         if t - ini >= Z["frase_min"] and dur - t >= Z["frase_min"]:
             if zoom:
@@ -294,7 +295,10 @@ def main():
           f"[vc]crop={CAM['w']}:{CAM['h']}:{CAM['x']}:{CAM['y']},format=yuva420p,"
           f"pad={CAM['w']}:{PAD}:0:0:color=black@0,"
           f"scale=w='trunc({CAM['w']}*{fcam}/2)*2':h='trunc({PAD}*{fcam}/2)*2':eval=frame,"
-          f"crop={W}:{CAM_HZ}:x='(iw-{W})/2':y='max(0,(ih*{CAM['h']}/{PAD}-{CAM_HZ})/2)'[cam]",
+          # Centrado con el tamaño real de cada fotograma: iw/ih de crop se fijan con el primero (plano normal) y
+          # el mini-zoom salía recortado desde la izquierda
+          f"crop={W}:{CAM_HZ}:x='(trunc({CAM['w']}*{fcam}/2)*2-{W})/2':"
+          f"y='max(0,(trunc({PAD}*{fcam}/2)*2*{CAM['h']}/{PAD}-{CAM_HZ})/2)'[cam]",
           # Pantalla: recorte por tramo escalado a la capa de abajo
           f"[vs]scale=w='trunc(1920*{esc}/2)*2':h='trunc(1080*{esc}/2)*2':eval=frame,"
           f"crop={W}:{BOT}:x='max(0,min(iw-{W},{cx}*{esc}-{W // 2}))':y='max(0,min(ih-{BOT},{cy}*{esc}-{BOT // 2}))'[p0]"]

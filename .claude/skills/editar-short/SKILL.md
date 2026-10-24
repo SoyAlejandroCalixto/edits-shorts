@@ -43,7 +43,9 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    diga que NO es meme (foto/clip real) no se estira: `"modo": "proporcion", "centro": [x, y]` (recorte 9:16 centrado
    en lo que pida). Una imagen del usuario que sí sea meme → `"modo": "estirar"`.
 5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
-   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Sincronía con
+   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Primer plano
+   normal (regla del canal)**: el short nunca empieza con zoom; el primer tramo es siempre el plano normal (también
+   si fuerzas `"zooms"`: ninguno empieza en 0). **Sincronía con
    los cortes del bruto (regla del canal)**: el cambio de plano va justo cuando empieza a hablar; si el bruto tiene un
    corte (jump cut) ahí, el zoom cambia en el fotograma exacto del corte. El render detecta los cortes en la cámara
    (`cortes_camara`, `config.json` → `cortes`) y usa el corte en vez del inicio de palabra de Whisper (que llega hasta

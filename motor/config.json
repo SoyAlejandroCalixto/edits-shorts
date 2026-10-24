@@ -4,8 +4,7 @@
   "zoom": {
     "factor": 1.316,
     "lento_por_segundo": 0.02,
-    "frase_min": 2.5,
-    "empieza_con_zoom": true
+    "frase_min": 2.5
   },
   "cortes": {"min": 4, "fuerza": 10, "fuerza_sola": 30, "margen": 0.25},
   "pantalla_por_defecto": {"centro": [640, 520], "ancho": 1000},
