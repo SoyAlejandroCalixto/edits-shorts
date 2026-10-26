@@ -7,13 +7,15 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
   "video": "brutos/x.mp4",
   "pantalla": [{"desde": 0, "centro": [640, 520], "ancho": 1000}, ...],   recorte de pantalla por tramo (s del bruto,
                  píxeles del bruto 1920x1080); se mantiene hasta el siguiente "desde". ancho <= 1040.
+                 "seguir": [[t, x, y], ...] opcional: el centro va en línea recta de punto a punto (jugadas: seguir
+                 al que lleva el balón)
   "imagenes": [{"t": "L5:3", "archivo": "imagenes/x.jpg"}, ...],          con cam shot; "dur" o "hasta" opcional;
                  "modo": "abajo" (debajo de la cara, sin deformar; por defecto, config "imagen_modo") o "estirar"
                  (solo memes: deformada a toda la pantalla 1080x1920)
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
-  "zooms": [[2.0, 5.5], ...]                                              opcional: fuerza los tramos de mini-zoom
+  "zooms": [[2.0, 5.5], ...]                                              opcional: fuerza los tramos de mini-zoom ([] = ninguno)
   "titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]  título grande en el centro (\\N = salto
                  de línea)
 }
@@ -148,12 +150,23 @@ def alinear_pantalla(tramos: list[dict], fronteras: list[float]) -> list[dict]:
     return out
 
 
+def seguir_expr(puntos: list, i: int) -> str:
+    """Centro que se mueve en línea recta entre los puntos [t, x, y] de "seguir" (coordenada i: 1 = x, 2 = y)."""
+    puntos = sorted(puntos)
+    expr = f"{puntos[-1][i]:.3f}"
+    for (t0, *a), (t1, *b) in reversed(list(zip(puntos, puntos[1:]))):
+        v0, v1 = a[i - 1], b[i - 1]
+        expr = f"if(lt(t,{t1:.3f}),{v0:.3f}+({v1 - v0:.3f})*(t-{t0:.3f})/{t1 - t0:.3f},{expr})"
+    return f"if(lt(t,{puntos[0][0]:.3f}),{puntos[0][i]:.3f},{expr})"
+
+
 def pantalla_expr(tramos: list[dict], clave) -> str:
-    """Valor por tramos de pantalla (escala, centro x o centro y) en función de t."""
+    """Valor por tramos de pantalla (escala, centro x o centro y) en función de t; clave puede devolver una expresión."""
     tramos = sorted(tramos, key=lambda p: p["desde"])
-    expr = f"{clave(tramos[0]):.5f}"
+    num = lambda v: v if isinstance(v, str) else f"{v:.5f}"
+    expr = num(clave(tramos[0]))
     for p in tramos[1:]:
-        expr = f"if(gte(t,{p['desde']:.3f}),{clave(p):.5f},{expr})"
+        expr = f"if(gte(t,{p['desde']:.3f}),{num(clave(p))},{expr})"
     return expr
 
 
@@ -270,12 +283,12 @@ def main():
         x["b"] = min(x["b"], y["a"])
 
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes_camara(video)), imagenes)
-    zooms = dec.get("zooms") or tramos_zoom(fronteras, dur)
+    zooms = dec["zooms"] if "zooms" in dec else tramos_zoom(fronteras, dur)   # [] = sin mini-zoom
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
-    cx = pantalla_expr(pant, lambda p: p["centro"][0])
-    cy = pantalla_expr(pant, lambda p: p["centro"][1])
+    cx = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 1) if p.get("seguir") else p["centro"][0])
+    cy = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 2) if p.get("seguir") else p["centro"][1])
     fcam = factor_camara(zooms)
     zz = en_zoom(zooms)
 
@@ -301,7 +314,9 @@ def main():
           f"y='max(0,(trunc({PAD}*{fcam}/2)*2*{CAM['h']}/{PAD}-{CAM_HZ})/2)'[cam]",
           # Pantalla: recorte por tramo escalado a la capa de abajo
           f"[vs]scale=w='trunc(1920*{esc}/2)*2':h='trunc(1080*{esc}/2)*2':eval=frame,"
-          f"crop={W}:{BOT}:x='max(0,min(iw-{W},{cx}*{esc}-{W // 2}))':y='max(0,min(ih-{BOT},{cy}*{esc}-{BOT // 2}))'[p0]"]
+          # Límites con el tamaño escalado de cada tramo: iw/ih de crop se quedan con los del primer fotograma
+          f"crop={W}:{BOT}:x='max(0,min(trunc(1920*{esc}/2)*2-{W},{cx}*{esc}-{W // 2}))':"
+          f"y='max(0,min(trunc(1080*{esc}/2)*2-{BOT},{cy}*{esc}-{BOT // 2}))'[p0]"]
     ult = "p0"
     encima = []   # capas a pantalla completa por encima de la cámara: (etiqueta, a, b)
     for k, im in enumerate(imagenes, start=1):
