@@ -14,7 +14,8 @@ títulos que pida el usuario grandes en el centro (tamaño 130, blancos salvo qu
 con zoom-in de 0,2 s en ease-in (de menos a más rápido) sonando `recursos/swoosh.wav`, y zoom lento constante
 hasta desaparecer sin transición;
 memes del bruto estirados a toda la pantalla 1080x1920 aunque se deformen, salvo lo que el usuario diga que no es
-meme; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra dura y halo negro difuminado.
+meme; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra dura y halo negro difuminado,
+que aparecen con zoom-in de 0,1 s en ease con desenfoque de movimiento y desaparecen de golpe, sin animación.
 
 ## Carpetas
 - `brutos/` fragmentos ya recortados (1920x1080). `imagenes/` imágenes que pasa el usuario.

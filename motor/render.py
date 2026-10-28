@@ -9,6 +9,8 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  píxeles del bruto 1920x1080); se mantiene hasta el siguiente "desde". ancho <= 1040.
                  "seguir": [[t, x, y], ...] opcional: el centro va en línea recta de punto a punto (jugadas: seguir
                  al que lleva el balón)
+                 "centro_zoom": [x, y] opcional: centro durante el mini-zoom (la capa baja 128 px y la cámara tapa sus
+                 128 px de arriba); puede quedar por encima del bruto para que lo de arriba (caras) no quede tapado
   "imagenes": [{"t": "L5:3", "archivo": "imagenes/x.jpg"}, ...],          con cam shot; "dur" o "hasta" opcional;
                  "modo": "abajo" (debajo de la cara, sin deformar; por defecto, config "imagen_modo") o "estirar"
                  (solo memes: deformada a toda la pantalla 1080x1920)
@@ -16,6 +18,11 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
   "zooms": [[2.0, 5.5], ...]                                              opcional: fuerza los tramos de mini-zoom ([] = ninguno)
+  "cara_encima": [x, y, w, h]                                             opcional: tapa esa caja del bruto (la cámara de
+                 otro que reacciona dentro del vídeo) con la cámara del usuario, rellenándola sin deformar
+  "reel": [x, y, w, h]                                                    opcional: el short es solo esa caja del bruto (un
+                 reel vertical) a pantalla completa, sin la cámara de arriba; el mini-zoom acerca hacia
+                 "centro_zoom": [x, y] (por defecto el centro de cara_encima). Sin imágenes ni "completa"
   "titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]  título grande en el centro (\\N = salto
                  de línea)
 }
@@ -84,11 +91,40 @@ def cortes_camara(video: Path) -> list[tuple[float, float]]:
     return out
 
 
-def fronteras_frase(palabras: list[dict], cortes=()) -> list[float]:
+def niveles_voz(video: Path):
+    """Nivel del audio en dB cada 10 ms (para afinar los inicios de palabra de Whisper)."""
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000",
+                        "-f", "f32le", "-"], capture_output=True, check=True)
+    a = np.frombuffer(r.stdout, np.float32)
+    n = len(a) // 160
+    return 20 * np.log10(np.sqrt((a[:n * 160].reshape(n, 160).astype(np.float64) ** 2).mean(axis=1)) + 1e-9)
+
+
+def arranque_voz(db, s: float) -> float:
+    """Inicio real de la palabra que Whisper da en s (llega hasta ~0,25 s tarde): tras el silencio más hondo de los
+    0,4 s previos, el primer instante en que la voz sube. Sin silencio claro (≥ 20 dB por debajo), s tal cual."""
+    if db is None:
+        return s
+    i1 = min(round(s * 100), len(db) - 1)
+    i0 = max(0, i1 - 40)
+    if i1 - i0 < 3:
+        return s
+    m = i0 + int(db[i0:i1].argmin())
+    ref = float(db[m:min(i1 + 10, len(db))].max())
+    if ref - db[m] < 20:
+        return s
+    umbral = db[m] + 0.6 * (ref - db[m])
+    k = next(k for k in range(m, len(db)) if db[k] >= umbral)
+    return min(s, k / 100 - 0.01)
+
+
+def fronteras_frase(palabras: list[dict], cortes=(), db=None) -> list[float]:
     """Inicios de frase: tras coma, punto, etc. o en una palabra en mayúscula que suele abrir frase.
     Si hay un corte del bruto entre la palabra anterior y la que abre frase, la frontera es el corte (Whisper da el
     inicio de palabra hasta ~0,25 s tarde y el zoom quedaba desfasado del corte). Un corte fuerte en una pausa también
-    abre frase aunque el texto no lo marque."""
+    abre frase aunque el texto no lo marque. Sin corte, la frontera es el arranque real de la voz (arranque_voz), no el
+    inicio de Whisper, para no cambiar de plano a mitad de la palabra."""
     C = CONFIG["cortes"]
     out = []
     for a, b in zip(palabras, palabras[1:]):
@@ -103,7 +139,9 @@ def fronteras_frase(palabras: list[dict], cortes=()) -> list[float]:
                 out.append(t - 0.002)
             continue
         if texto:
-            out.append(b["s"])
+            t = max(arranque_voz(db, b["s"]), a["e"] - 0.1)
+            if not out or t > out[-1]:
+                out.append(t)
     return out
 
 
@@ -125,9 +163,9 @@ def en_zoom(zooms) -> str:
     return "+".join(f"(gte(t,{a:.3f})*lt(t,{b:.3f}))" for a, b in zooms) or "0"
 
 
-def factor_camara(zooms) -> str:
-    """Escala de la cámara: reposo = cabe a 1080 de ancho; mini-zoom = x factor con zoom lento desde su inicio."""
-    f1 = W / CAM["w"]
+def factor_camara(zooms, f1=W / CAM["w"]) -> str:
+    """Escala de la cámara: reposo = cabe a 1080 de ancho (o f1); mini-zoom = x factor con zoom lento desde su
+    inicio."""
     f2 = f1 * Z["factor"]
     expr = f"{f1:.5f}"
     for a, b in zooms:
@@ -201,10 +239,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     pos = f"\\an5\\pos({W // 2},{SUB['y']})"
     d = SUB["difusa"]   # halo negro difuminado y semitransparente, sin desplazamiento, detrás del texto
     halo = f"{pos}\\1a&HFF&\\3c&H000000&\\3a{d['alfa']}\\bord{d['borde']}\\blur{d['blur']}\\shad0"
+    # Entrada de cada subtítulo: zoom-in de 0 a 100 % en entrada_ms con curva ease (ease-in-out: acelera la primera
+    # mitad y frena la segunda; \t solo admite una curva potencial, así que van dos); la salida es de golpe. El texto
+    # entra desenfocado (entrada_blur) y se enfoca a la vez que el zoom, como un desenfoque de movimiento.
+    e = SUB["entrada_ms"]
+    m = e // 2
+    zoom = f"\\fscx0\\fscy0\\t(0,{m},2,\\fscx50\\fscy50)\\t({m},{e},0.5,\\fscx100\\fscy100)"
     filas = []
     for s in subs:
-        filas.append(f"Dialogue: 0,{ts(s['s'])},{ts(s['e'])},S,,0,0,0,,{{{halo}}}{s['texto']}")
-        filas.append(f"Dialogue: 1,{ts(s['s'])},{ts(s['e'])},S,,0,0,0,,{{{pos}\\blur0}}{s['texto']}")
+        filas.append(f"Dialogue: 0,{ts(s['s'])},{ts(s['e'])},S,,0,0,0,,{{{halo}{zoom}}}{s['texto']}")
+        filas.append(f"Dialogue: 1,{ts(s['s'])},{ts(s['e'])},S,,0,0,0,,"
+                     f"{{{pos}\\blur{SUB['entrada_blur']}{zoom}\\t(0,{e},\\blur0)}}{s['texto']}")
     # Títulos: mismo estilo que los subtítulos pero más grandes, en el centro y blancos (o el "color" "#RRGGBB" que
     # se pida). Cada línea va en su propio Dialogue para controlar el interlineado (libass no lo permite). Entran con
     # zoom-in rápido con ease-in (de menos a más rápido, 0 -> 100 % en entrada_ms; un evento por fotograma, porque
@@ -282,7 +327,7 @@ def main():
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
 
-    fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes_camara(video)), imagenes)
+    fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes_camara(video), niveles_voz(video)), imagenes)
     zooms = dec["zooms"] if "zooms" in dec else tramos_zoom(fronteras, dur)   # [] = sin mini-zoom
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
@@ -291,6 +336,15 @@ def main():
     cy = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 2) if p.get("seguir") else p["centro"][1])
     fcam = factor_camara(zooms)
     zz = en_zoom(zooms)
+    # "centro_zoom": centro durante el mini-zoom (la capa de abajo baja (CAM_HZ - CAM_H) / 2 y la cámara tapa otro
+    # tanto de arriba); puede subir por encima del bruto: ese relleno negro queda escondido bajo la cámara
+    cxz = pantalla_expr(pant, lambda p: p.get("centro_zoom", [None])[0] or 0)
+    cyz = pantalla_expr(pant, lambda p: p.get("centro_zoom", [0, 0])[1])
+    hay_cz = pantalla_expr(pant, lambda p: 1 if p.get("centro_zoom") else 0)
+    cz = f"(({zz})*{hay_cz})"
+    cx = f"if({cz},{cxz},{cx})"
+    cy = f"if({cz},{cyz},{cy})"
+    tapa = (CAM_HZ - CAM_H) // 2
 
     # Medio fotograma antes: los cortes del bruto caen justo en un fotograma (2.6667) y redondeado a 3 decimales
     # (2.667) se perdía el primero, que salía partido (cámara ya con el meme, abajo todavía sin él)
@@ -301,9 +355,11 @@ def main():
     titulos = [{**t, "a": tiempo(t["desde"]), "b": tiempo(t["hasta"])} for t in dec.get("titulos", [])]
     escribir_ass(subs, ass, titulos)
 
+    cara = dec.get("cara_encima")
     entradas = ["-i", rel(video)]
     fc = [f"color=c=black:s={W}x{H}:r={FPS}:d={dur:.3f}[lienzo]",
-          f"[0:v]fps={FPS},split={2 + len(completa)}[vc][vs]{''.join(f'[vf{k}]' for k in range(len(completa)))}",
+          f"[0:v]fps={FPS},split={2 + len(completa) + bool(cara)}[vc][{'vs0' if cara else 'vs'}]"
+          f"{''.join(f'[vf{k}]' for k in range(len(completa)))}{'[vcara]' if cara else ''}",
           # Cámara: recorte del bruto con relleno transparente debajo, escala por fotograma, centrada arriba
           f"[vc]crop={CAM['w']}:{CAM['h']}:{CAM['x']}:{CAM['y']},format=yuva420p,"
           f"pad={CAM['w']}:{PAD}:0:0:color=black@0,"
@@ -314,9 +370,32 @@ def main():
           f"y='max(0,(trunc({PAD}*{fcam}/2)*2*{CAM['h']}/{PAD}-{CAM_HZ})/2)'[cam]",
           # Pantalla: recorte por tramo escalado a la capa de abajo
           f"[vs]scale=w='trunc(1920*{esc}/2)*2':h='trunc(1080*{esc}/2)*2':eval=frame,"
+          f"pad=w=iw:h=ih+{tapa}:x=0:y={tapa}:color=black:eval=frame,"
           # Límites con el tamaño escalado de cada tramo: iw/ih de crop se quedan con los del primer fotograma
           f"crop={W}:{BOT}:x='max(0,min(trunc(1920*{esc}/2)*2-{W},{cx}*{esc}-{W // 2}))':"
-          f"y='max(0,min(trunc(1080*{esc}/2)*2-{BOT},{cy}*{esc}-{BOT // 2}))'[p0]"]
+          f"y='max({tapa}*(1-{cz}),min(trunc(1080*{esc}/2)*2+{tapa}-{BOT},{cy}*{esc}-{BOT // 2}+{tapa}))'[p0]"]
+    if cara:
+        # La cámara del usuario encima de la del otro reactor, en el bruto antes de recortar la pantalla
+        x, y, w, h = cara
+        fc.append(f"[vcara]crop={CAM['w']}:{CAM['h']}:{CAM['x']}:{CAM['y']},"
+                  f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1[cara]")
+        fc.append(f"[vs0][cara]overlay={x}:{y}[vs]")
+    reel = dec.get("reel")
+    if reel:
+        # Solo el reel a pantalla completa (con cara_encima ya puesta), sin la cámara de arriba; el mini-zoom
+        # acerca hacia su "centro_zoom" (por defecto el centro de cara_encima), que se queda quieto en pantalla
+        rx, ry, rw, rh = reel
+        x, y, w, h = cara or reel
+        zx, zy = dec.get("centro_zoom") or [x + w / 2, y + h / 2]
+        fx, fy = (zx - rx) / rw, (zy - ry) / rh
+        fr = factor_camara(zooms, max(W / rw, H / rh) + 1e-4)   # sin el pelo, trunc deja 1918 de alto
+        sw, sh = f"trunc({rw}*{fr}/2)*2", f"trunc({rh}*{fr}/2)*2"
+        if imagenes or completa:
+            sys.exit("reel: sin imágenes ni tramos a pantalla completa")
+        fc_reel = [f"[0:v]fps={FPS},split=2[vs0][vcara]", *fc[-2:],
+              f"[vs]crop={rw}:{rh}:{rx}:{ry},scale=w='{sw}':h='{sh}':eval=frame,"
+              f"crop={W}:{H}:x='({sw}-{W})*{fx:.4f}':y='({sh}-{H})*{fy:.4f}',setsar=1,"
+              f"subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]"]
     ult = "p0"
     encima = []   # capas a pantalla completa por encima de la cámara: (etiqueta, a, b)
     for k, im in enumerate(imagenes, start=1):
@@ -352,6 +431,8 @@ def main():
         fc.append(f"[e{j - 1}][{et}]overlay=0:0:eof_action=pass:enable='gte(t,{a:.3f})*lt(t,{b:.3f})'[e{j}]")
     fc.append(f"[e{len(encima)}]subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]")
 
+    if reel:
+        fc = fc_reel
     amix = ["[0:a]"]
     base = 1 + len(imagenes)
     # Cam shot al entrar cada imagen y swoosh al zoom-in de cada título

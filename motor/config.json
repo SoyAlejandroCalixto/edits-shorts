@@ -21,6 +21,8 @@
     "tam": 78,
     "color": "&H0000F2FF",
     "sombra": 9,
+    "entrada_ms": 100,
+    "entrada_blur": 6,
     "difusa": {"borde": 6, "blur": 8, "alfa": "&H80&"}
   },
   "encoder": ["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak", "-b:v", "12M", "-maxrate", "16M"]

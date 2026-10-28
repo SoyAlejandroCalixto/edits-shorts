@@ -56,7 +56,9 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    se ve, no por cada detalle. Los tramos `completa` se ajustan solos al fotograma exacto del corte del bruto (sin
    fotogramas partidos al empezar o acabar un meme): usa los tiempos de `scdet` tal cual. Los subtítulos
    llevan, además de la sombra dura negra, un halo negro difuminado semitransparente sin desplazamiento
-   (`subtitulos.difusa` en `config.json`) para leerse sobre fondos amarillos o claros.
+   (`subtitulos.difusa` en `config.json`) para leerse sobre fondos amarillos o claros. **Entrada de los subtítulos
+   (regla del canal)**: cada trozo aparece con un zoom-in de 0,1 s con curva ease y desenfoque de movimiento (`subtitulos.entrada_ms`, `entrada_blur`) y
+   desaparece de golpe, sin animación.
 5d. **Títulos** (solo si el usuario los pide): texto grande en el centro de la pantalla, misma fuente, sombra y halo
    que los subtítulos (`config.json` → `titulo`): `"titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]`
    en MAYÚSCULAS; `\\N` en el JSON = salto de línea (la línea que pida abajo). **Estilo fijo del canal**: blanco por
