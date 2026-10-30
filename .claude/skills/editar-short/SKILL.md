@@ -40,6 +40,9 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    **Imagen y cambio de plano juntos (regla del canal)**: si un cambio de plano (zoom o recorte de abajo) queda a
    ≤ `ajuste_imagen` (0,3 s) del inicio o fin de una imagen, el render lo mueve justo a ese borde; nunca debe quedar
    un fotograma con la imagen ya quitada y el plano sin cambiar (o al revés). Verifica los fotogramas de cada borde.
+   **Mismo plano durante toda la imagen (regla del canal)**: nunca hay cambio de plano (zoom o recorte) a mitad de
+   una imagen; el render quita esas fronteras y lleva los bordes de zoom (también los de `"zooms"` forzados) al
+   inicio o fin de la imagen. Si el usuario quiere la imagen sin zoom: `"plano": "normal"` en esa imagen.
    **Las imágenes que pasa el usuario son imágenes normales, no memes: van siempre abajo, debajo de su cara, como si
    las comentara** (modo `"abajo"`, el de por defecto). Solo se estira una imagen si el usuario dice que es un meme.
 5b. **Memes estirados (regla del canal)**: los memes que ya vienen en el bruto a pantalla completa (detectados con los
@@ -48,7 +51,7 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    diga que NO es meme (foto/clip real) no se estira: `"modo": "proporcion", "centro": [x, y]` (recorte 9:16 centrado
    en lo que pida). Una imagen del usuario que sí sea meme → `"modo": "estirar"`.
 5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
-   palabra que abre frase; un "¿eh?" siempre cierra la frase anterior, nunca abre una), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Primer plano
+   palabra que abre frase; un "¿eh?" o un "¿no?" siempre cierra la frase anterior, nunca abre una: el cambio va luego, en la frase siguiente), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Primer plano
    normal (regla del canal)**: el short nunca empieza con zoom; el primer tramo es siempre el plano normal (también
    si fuerzas `"zooms"`: ninguno empieza en 0). **Sincronía con
    los cortes del bruto (regla del canal)**: el cambio de plano va justo cuando empieza a hablar; si el bruto tiene un

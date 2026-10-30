@@ -13,7 +13,8 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  128 px de arriba); puede quedar por encima del bruto para que lo de arriba (caras) no quede tapado
   "imagenes": [{"t": "L5:3", "archivo": "imagenes/x.jpg"}, ...],          con cam shot; "dur" o "hasta" opcional;
                  "modo": "abajo" (debajo de la cara, sin deformar; por defecto, config "imagen_modo") o "estirar"
-                 (solo memes: deformada a toda la pantalla 1080x1920)
+                 (solo memes: deformada a toda la pantalla 1080x1920); "plano": "normal" = sin mini-zoom mientras está
+                 (nunca hay cambio de plano dentro de una imagen: empieza y acaba con el mismo)
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
@@ -74,6 +75,8 @@ INICIOS = set("""y o pero que lo la el los las es fue era sea no ni han ha hay n
 
 # Coletillas que van al final de una frase aunque Whisper las separe con coma: nunca abren frase
 COLETILLAS = {"eh"}
+# Las mismas, pero solo en pregunta ("¿no?" cierra frase; "No sé..." sí la abre)
+COLETILLAS_PREGUNTA = {"no"}
 
 
 def cortes_camara(video: Path) -> list[tuple[float, float]]:
@@ -137,8 +140,9 @@ def fronteras_frase(palabras: list[dict], cortes=(), db=None) -> list[float]:
     out = []
     for a, b in zip(palabras, palabras[1:]):
         w = b["w"].strip("¿¡\"'")
-        if w.lower().strip(",.;:?!…") in COLETILLAS:
-            continue   # "¿eh?" cierra la frase anterior, nunca abre una (regla del canal)
+        limpia = w.lower().strip(",.;:?!…")
+        if limpia in COLETILLAS or (limpia in COLETILLAS_PREGUNTA and "?" in b["w"]):
+            continue   # "¿eh?" y "¿no?" cierran la frase anterior, nunca abren una (regla del canal)
         texto = bool(re.search(r"[,.;:?!…]$", a["w"]) or (w[:1].isupper() and w.lower().strip(",.") in INICIOS))
         m = C["margen"] if texto else 0.1   # sin puntuación, solo si el corte cae en la pausa entre palabras
         cerca = [(t, f) for t, f in cortes if a["e"] - m <= t <= b["s"] + m and (texto or f >= C["fuerza_sola"])]
@@ -238,9 +242,34 @@ def ajustar_a_imagenes(fronteras: list[float], imagenes: list[dict]) -> list[flo
     bordes = [t for im in imagenes for t in (im["a"], im["b"])]
     out = []
     for f in fronteras:
+        if any(im["a"] < f < im["b"] for im in imagenes):
+            continue   # una imagen empieza y acaba con el mismo plano (regla del canal)
         cerca = [t for t in bordes if abs(t - f) <= CONFIG["ajuste_imagen"]]
         out.append(min(cerca, key=lambda t: abs(t - f)) if cerca else f)
     return sorted(set(out))
+
+
+def zooms_con_imagenes(zooms: list, imagenes: list[dict]) -> list[list[float]]:
+    """Ningún cambio de zoom dentro de una imagen: el borde se lleva al inicio o fin de la imagen más cercano (también
+    en los "zooms" forzados). Con "plano": "normal" en la imagen, se quita el zoom durante toda ella."""
+    out = [list(z) for z in zooms]
+    for im in imagenes:
+        a, b = im["a"], im["b"]
+        nuevo = []
+        for z0, z1 in out:
+            if im.get("plano") == "normal":
+                if z0 < a:
+                    nuevo.append([z0, min(z1, a)])
+                if z1 > b:
+                    nuevo.append([max(z0, b), z1])
+                continue
+            if a < z0 < b:
+                z0 = a if z0 - a < b - z0 else b
+            if a < z1 < b:
+                z1 = a if z1 - a < b - z1 else b
+            nuevo.append([z0, z1])
+        out = [z for z in nuevo if z[1] - z[0] > 1e-3]
+    return out
 
 
 def escribir_ass(subs: list[dict], dst: Path, titulos=()):
@@ -346,7 +375,7 @@ def main():
         else:
             b = next((e for e in fins if e - a >= CONFIG["imagen_min_dur"]), dur)
         imagenes.append({"archivo": im["archivo"], "a": a, "b": min(b + 0.1, dur),
-                         "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo"))})
+                         "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano")})
     imagenes.sort(key=lambda i: i["a"])
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
@@ -360,6 +389,7 @@ def main():
         zooms = tramos_zoom(fr[1:], dur, fr[0]) if fr else []
     else:
         zooms = tramos_zoom(fronteras, dur)
+    zooms = zooms_con_imagenes(zooms, imagenes)
     # "zoom_retraso": {"L4": 4} mueve N fotogramas (negativo = antes) el cambio de zoom más cercano a ese tiempo
     for t, n in dec.get("zoom_retraso", {}).items():
         t = tiempo(t)

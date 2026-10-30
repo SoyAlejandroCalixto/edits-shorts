@@ -7,12 +7,12 @@ Estilo (automático en `motor/render.py`): cámara arriba lo más pequeña posib
 ancho, solo pared quitada por arriba para que sea más horizontal y la pantalla de abajo más alta, ver
 `motor/config.json`) con mini-zoom de todo el short (la cámara crece y empuja la pantalla; nunca un zoom solo dentro
 de su hueco, como ventana aislada):
-el mini-zoom entra y sale solo al empezar frase (frases cortas juntas, ≥ 2,5 s) (salto suave ×1,18) y, mientras dura, zoom lento progresivo (0,02/s) de todo el fotograma, cámara y pantalla juntas, hacia el centro de la cámara, sin tocar los subtítulos (nunca solo dentro de la cámara como entorno aislado); un "¿eh?" siempre cierra la frase anterior, nunca abre una (no lleva cambio de plano delante); el primer plano es
+el mini-zoom entra y sale solo al empezar frase (frases cortas juntas, ≥ 2,5 s) (salto suave ×1,18) y, mientras dura, zoom lento progresivo (0,02/s) de todo el fotograma, cámara y pantalla juntas, hacia el centro de la cámara, sin tocar los subtítulos (nunca solo dentro de la cámara como entorno aislado); un "¿eh?" o un "¿no?" siempre cierra la frase anterior, nunca abre una (no lleva cambio de plano delante: el cambio va luego, en la frase siguiente); el primer plano es
 siempre normal, nunca se empieza con zoom; si el bruto tiene
 un corte (jump cut) al empezar la frase, el zoom entra o sale en el fotograma exacto del corte, nunca desfasado; pantalla abajo
 recortada sobre lo importante (si es un reel al que reacciona, solo el vídeo del reel llenando todo el ancho, sin bandas negras a los lados: como `object-fit: cover`, recortando un poco sus lados), con los cambios de plano también al empezar frase; imágenes del usuario siempre abajo, debajo de la cara, con `recursos/cam shot.wav`; toda imagen o meme que pida
 aparece y desaparece de golpe, sin animación, con un zoom lento constante y suave (subpíxel, sin vibrar) desde el centro (nunca desde una esquina) mientras está (`zoom_imagen_por_segundo`), y si un cambio de plano
-queda cerca de su inicio o fin se mueve a ese mismo fotograma (nunca un fotograma suelto entre imagen y plano);
+queda cerca de su inicio o fin se mueve a ese mismo fotograma (nunca un fotograma suelto entre imagen y plano); nunca hay cambio de plano a mitad de una imagen: empieza y acaba con el mismo plano (`"plano": "normal"` en la imagen = sin zoom mientras está);
 títulos que pida el usuario grandes en el centro (tamaño 130, blancos salvo que pida otro color, líneas juntas: interlineado 0,74),
 con zoom-in de 0,2 s en ease-in (de menos a más rápido) sonando `recursos/swoosh.wav`, y zoom lento constante
 hasta desaparecer sin transición;
