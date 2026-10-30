@@ -40,9 +40,9 @@ from comun import CONFIG, RAIZ, cargar_palabras, lineas  # noqa: E402
 
 W, H, FPS = CONFIG["salida"]["ancho"], CONFIG["salida"]["alto"], CONFIG["salida"]["fps"]
 CAM, Z, SUB = CONFIG["camara"], CONFIG["zoom"], CONFIG["subtitulos"]
-CAM_H = round(W * CAM["h"] / CAM["w"] / 2) * 2          # altura de la cámara en reposo (760)
-CAM_HZ = round(CAM_H * Z["factor"] / 2) * 2             # altura de la cámara en mini-zoom (1000)
-BOT = H - CAM_H                                          # alto de la capa de abajo (1160)
+CAM_H = round(W * CAM["h"] / CAM["w"] / 2) * 2          # altura de la cámara en reposo (764)
+CAM_HZ = round(CAM_H * Z["factor"] / 2) * 2             # altura de la cámara en mini-zoom (1006)
+BOT = H - CAM_H                                          # alto de la capa de abajo (1156)
 PAD = round(CAM["h"] * CAM_HZ / CAM_H / 2) * 2 + 4       # alto de la cámara con relleno transparente debajo
 
 
@@ -163,7 +163,7 @@ def en_zoom(zooms) -> str:
     return "+".join(f"(gte(t,{a:.3f})*lt(t,{b:.3f}))" for a, b in zooms) or "0"
 
 
-def factor_camara(zooms, f1=W / CAM["w"]) -> str:
+def factor_camara(zooms, f1=W / CAM["w"] + 1e-5) -> str:   # + 1e-5: con 5 decimales a veces no llega a 1080
     """Escala de la cámara: reposo = cabe a 1080 de ancho (o f1); mini-zoom = x factor con zoom lento desde su
     inicio."""
     f2 = f1 * Z["factor"]

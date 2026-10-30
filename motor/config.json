@@ -1,6 +1,6 @@
 {
   "salida": {"ancho": 1080, "alto": 1920, "fps": 30},
-  "camara": {"x": 1339, "y": 665, "w": 554, "h": 390},
+  "camara": {"x": 1340, "y": 665, "w": 552, "h": 390},
   "zoom": {
     "factor": 1.316,
     "lento_por_segundo": 0.02,
