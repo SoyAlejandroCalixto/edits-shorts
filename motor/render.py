@@ -18,6 +18,10 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
   "zooms": [[2.0, 5.5], ...]                                              opcional: fuerza los tramos de mini-zoom ([] = ninguno)
+  "zooms_desde": "L3"                                                     opcional: sin mini-zoom antes de ese tiempo; el
+                 plano que empieza ahí también es normal, el primer zoom entra en la frase siguiente
+  "zoom_retraso": {"L4": 4}                                               opcional: retrasa N fotogramas el cambio de zoom
+                 más cercano a ese tiempo (≤ 0,5 s)
   "cara_encima": [x, y, w, h]                                             opcional: tapa esa caja del bruto (la cámara de
                  otro que reacciona dentro del vídeo) con la cámara del usuario, rellenándola sin deformar
   "reel": [x, y, w, h]                                                    opcional: el short es solo esa caja del bruto (un
@@ -41,7 +45,7 @@ from comun import CONFIG, RAIZ, cargar_palabras, lineas  # noqa: E402
 W, H, FPS = CONFIG["salida"]["ancho"], CONFIG["salida"]["alto"], CONFIG["salida"]["fps"]
 CAM, Z, SUB = CONFIG["camara"], CONFIG["zoom"], CONFIG["subtitulos"]
 CAM_H = round(W * CAM["h"] / CAM["w"] / 2) * 2          # altura de la cámara en reposo (764)
-CAM_HZ = round(CAM_H * Z["factor"] / 2) * 2             # altura de la cámara en mini-zoom (1006)
+CAM_HZ = round(CAM_H * Z["factor"] / 2) * 2             # altura de la cámara en mini-zoom (902)
 BOT = H - CAM_H                                          # alto de la capa de abajo (1156)
 PAD = round(CAM["h"] * CAM_HZ / CAM_H / 2) * 2 + 4       # alto de la cámara con relleno transparente debajo
 
@@ -66,6 +70,10 @@ def duracion(p: Path) -> float:
 # Palabras que, en mayúscula y sin puntuación delante, marcan el inicio de una frase (Whisper a veces no pone puntos)
 INICIOS = set("""y o pero que lo la el los las es fue era sea no ni han ha hay necesitan primero segundo tercero
     además entonces porque pues culpa tú te yo a en con para por si cuando como mientras luego claro""".split())
+
+
+# Coletillas que van al final de una frase aunque Whisper las separe con coma: nunca abren frase
+COLETILLAS = {"eh"}
 
 
 def cortes_camara(video: Path) -> list[tuple[float, float]]:
@@ -129,6 +137,8 @@ def fronteras_frase(palabras: list[dict], cortes=(), db=None) -> list[float]:
     out = []
     for a, b in zip(palabras, palabras[1:]):
         w = b["w"].strip("¿¡\"'")
+        if w.lower().strip(",.;:?!…") in COLETILLAS:
+            continue   # "¿eh?" cierra la frase anterior, nunca abre una (regla del canal)
         texto = bool(re.search(r"[,.;:?!…]$", a["w"]) or (w[:1].isupper() and w.lower().strip(",.") in INICIOS))
         m = C["margen"] if texto else 0.1   # sin puntuación, solo si el corte cae en la pausa entre palabras
         cerca = [(t, f) for t, f in cortes if a["e"] - m <= t <= b["s"] + m and (texto or f >= C["fuerza_sola"])]
@@ -145,10 +155,10 @@ def fronteras_frase(palabras: list[dict], cortes=(), db=None) -> list[float]:
     return out
 
 
-def tramos_zoom(fronteras: list[float], dur: float) -> list[list[float]]:
+def tramos_zoom(fronteras: list[float], dur: float, ini: float = 0.0) -> list[list[float]]:
     """Alterna normal / mini-zoom solo en inicios de frase; las frases cortas se juntan hasta durar frase_min.
-    El primer plano es siempre normal (regla del canal: nunca se empieza con zoom)."""
-    zoom, ini, out = False, 0.0, []
+    El primer plano es siempre normal (regla del canal: nunca se empieza con zoom), también el que empieza en ini."""
+    zoom, out = False, []
     for t in fronteras:
         if t - ini >= Z["frase_min"] and dur - t >= Z["frase_min"]:
             if zoom:
@@ -163,14 +173,28 @@ def en_zoom(zooms) -> str:
     return "+".join(f"(gte(t,{a:.3f})*lt(t,{b:.3f}))" for a, b in zooms) or "0"
 
 
-def factor_camara(zooms, f1=W / CAM["w"] + 1e-5) -> str:   # + 1e-5: con 5 decimales a veces no llega a 1080
-    """Escala de la cámara: reposo = cabe a 1080 de ancho (o f1); mini-zoom = x factor con zoom lento desde su
-    inicio."""
+def factor_camara(zooms, f1=W / CAM["w"] + 1e-5, lento=True) -> str:   # + 1e-5: con 5 decimales a veces no llega a 1080
+    """Escala de la cámara: reposo = cabe a 1080 de ancho (o f1); mini-zoom = x factor, con zoom lento desde su
+    inicio si lento (en el short normal el zoom lento va en todo el fotograma, ver zoom_lento)."""
     f2 = f1 * Z["factor"]
     expr = f"{f1:.5f}"
     for a, b in zooms:
-        expr = f"if(gte(t,{a:.3f})*lt(t,{b:.3f}),{f2:.5f}*(1+{Z['lento_por_segundo']}*(t-{a:.3f})),{expr})"
+        f = f"{f2:.5f}*(1+{Z['lento_por_segundo']}*(t-{a:.3f}))" if lento else f"{f2:.5f}"
+        expr = f"if(gte(t,{a:.3f})*lt(t,{b:.3f}),{f},{expr})"
     return expr
+
+
+def zoom_lento(zooms, cx: float, cy: float) -> str:
+    """Zoom lento de todo el fotograma durante cada mini-zoom, hacia (cx, cy) (la cámara): la cámara crece y la
+    pantalla con ella, nunca la cámara sola como ventana aislada. Con perspective (subpíxel, sin vibrar), como las
+    imágenes; t = in / FPS porque perspective no tiene t."""
+    s = "+".join(f"gte(in/{FPS},{a:.3f})*lt(in/{FPS},{b:.3f})*{Z['lento_por_segundo']}*(in/{FPS}-{a:.3f})"
+                 for a, b in zooms) or "0"
+    k = f"(1-1/(1+{s}))"   # fracción recortada: x0 = cx * k, x1 = x0 + W / escala
+    x0, y0 = f"{cx}*{k}", f"{cy}*{k}"
+    x1, y1 = f"(W-(W-{cx})*{k})", f"(H-(H-{cy})*{k})"
+    return (f"format=gbrp,perspective=x0='{x0}':y0='{y0}':x1='{x1}':y1='{y0}':x2='{x0}':y2='{y1}':"
+            f"x3='{x1}':y3='{y1}':interpolation=cubic:eval=frame")
 
 
 def alinear_pantalla(tramos: list[dict], fronteras: list[float]) -> list[dict]:
@@ -328,13 +352,27 @@ def main():
         x["b"] = min(x["b"], y["a"])
 
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes_camara(video), niveles_voz(video)), imagenes)
-    zooms = dec["zooms"] if "zooms" in dec else tramos_zoom(fronteras, dur)   # [] = sin mini-zoom
+    if "zooms" in dec:
+        zooms = dec["zooms"]   # [] = sin mini-zoom
+    elif dec.get("zooms_desde") is not None:
+        # Desde ahí (p. ej. al volver a hablar tras un reel), y ese primer plano también normal
+        fr = [f for f in fronteras if f >= tiempo(dec["zooms_desde"]) - 0.5]
+        zooms = tramos_zoom(fr[1:], dur, fr[0]) if fr else []
+    else:
+        zooms = tramos_zoom(fronteras, dur)
+    # "zoom_retraso": {"L4": 4} mueve N fotogramas (negativo = antes) el cambio de zoom más cercano a ese tiempo
+    for t, n in dec.get("zoom_retraso", {}).items():
+        t = tiempo(t)
+        bordes = [(abs(v - t), i, j) for i, z in enumerate(zooms) for j, v in enumerate(z)]
+        if bordes and min(bordes)[0] <= 0.5:
+            _, i, j = min(bordes)
+            zooms[i][j] += n / FPS
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
     cx = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 1) if p.get("seguir") else p["centro"][0])
     cy = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 2) if p.get("seguir") else p["centro"][1])
-    fcam = factor_camara(zooms)
+    fcam = factor_camara(zooms, lento=False)
     zz = en_zoom(zooms)
     # "centro_zoom": centro durante el mini-zoom (la capa de abajo baja (CAM_HZ - CAM_H) / 2 y la cámara tapa otro
     # tanto de arriba); puede subir por encima del bruto: ese relleno negro queda escondido bajo la cámara
@@ -429,7 +467,8 @@ def main():
     fc.append("[l1][cam]overlay=0:0[e0]")
     for j, (et, a, b) in enumerate(encima, start=1):
         fc.append(f"[e{j - 1}][{et}]overlay=0:0:eof_action=pass:enable='gte(t,{a:.3f})*lt(t,{b:.3f})'[e{j}]")
-    fc.append(f"[e{len(encima)}]subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]")
+    fc.append(f"[e{len(encima)}]{zoom_lento(zooms, W / 2, CAM_HZ / 2)},"
+              f"subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]")
 
     if reel:
         fc = fc_reel

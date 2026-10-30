@@ -24,6 +24,11 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Elige `centro` = centro de lo importante (lo que señala o de lo que habla) y `ancho` (≤ 1040) para que quepa;
      el alto es ≈ 1,03 × ancho. Evita la cámara del bruto (x ≥ 1339, y ≥ 641), que ya sale arriba.
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
+   - **Reel al que reacciona (regla del canal)**: abajo va solo el vídeo del reel, sin bandas negras a los lados
+     (como `object-fit: cover`). Mide la caja del vídeo dentro del reel (sin las franjas negras de Instagram, p. ej.
+     `cropdetect`) y elige `ancho` = alto de esa caja / 1,07 (la capa de abajo es 1080x1156), con `centro` en el
+     centro de la caja: llena todo el ancho y recorta un poco sus lados. Ejemplo: caja 512x504 en (696, 298) →
+     `{"centro": [952, 550], "ancho": 470}`.
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
    la palabra que indique. Duran automáticamente hasta el fin de frase que deje ≥ 2 s; suenan con cam shot.
    **Zoom en imágenes (regla del canal)**: toda imagen o meme que pida el usuario (abajo o estirado) aparece y
@@ -43,7 +48,7 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    diga que NO es meme (foto/clip real) no se estira: `"modo": "proporcion", "centro": [x, y]` (recorte 9:16 centrado
    en lo que pida). Una imagen del usuario que sí sea meme → `"modo": "estirar"`.
 5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
-   palabra que abre frase), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Primer plano
+   palabra que abre frase; un "¿eh?" siempre cierra la frase anterior, nunca abre una), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Primer plano
    normal (regla del canal)**: el short nunca empieza con zoom; el primer tramo es siempre el plano normal (también
    si fuerzas `"zooms"`: ninguno empieza en 0). **Sincronía con
    los cortes del bruto (regla del canal)**: el cambio de plano va justo cuando empieza a hablar; si el bruto tiene un
@@ -73,4 +78,4 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
 ## Cambios que pida después
 Edita `decisiones.json` / `subs.json` y vuelve a renderizar (sale como `short-N` nuevo; borra el anterior si el
 usuario lo prefiere). "Abajo enfoca X" → cambia el tramo de `pantalla`. "Más/menos zooms" → `motor/config.json`
-(`zoom`) o fuerza tramos con `"zooms": [[a, b], ...]`.
+(`zoom`) o fuerza tramos con `"zooms": [[a, b], ...]`. "Que los cambios de plano empiecen cuando vuelvo a hablar" → `"zooms_desde": "L3"` (antes, plano normal fijo).

@@ -2,7 +2,7 @@
   "salida": {"ancho": 1080, "alto": 1920, "fps": 30},
   "camara": {"x": 1340, "y": 665, "w": 552, "h": 390},
   "zoom": {
-    "factor": 1.316,
+    "factor": 1.18,
     "lento_por_segundo": 0.02,
     "frase_min": 2.5
   },
