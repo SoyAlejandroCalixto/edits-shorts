@@ -1,6 +1,6 @@
-"""Renderiza un short 1080x1920@30 a salida/short-N.mp4.
+"""Renderiza un short 1080x1920@30 a salida/short-N.mov (audio PCM: DaVinci Resolve no oye el AAC).
 
-Uso: python motor/render.py trabajo/<nombre> [--salida ruta.mp4]
+Uso: python motor/render.py trabajo/<nombre> [--salida ruta.mov]
 
 Lee trabajo/<nombre>/decisiones.json y subs.json:
 {
@@ -81,13 +81,15 @@ COLETILLAS_PREGUNTA = {"no"}
 
 def cortes_camara(video: Path) -> list[tuple[float, float]]:
     """Cortes del bruto (jump cuts) vistos en la cámara: [(t del primer fotograma nuevo, fuerza), ...].
-    Fuerza = diferencia entre fotogramas / mediana local; un gesto da picos con la mediana alta, un corte no."""
+    Fuerza = diferencia entre fotogramas / mediana local; un gesto da picos con la mediana alta, un corte no.
+    También es corte un salto que dobla (cortes["vecinos"]) la diferencia de los 2 fotogramas de cada lado: así se
+    ven los cortes que caen mientras gesticula (con la mediana alta no llegaban a "fuerza")."""
     import numpy as np
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=r_frame_rate",
                         "-of", "csv=p=0", str(video)], capture_output=True, text=True, check=True)
     num, _, den = r.stdout.split()[0].partition("/")
     fps = float(num) / float(den or 1)
-    w, h = 138, 104
+    w, h = CAM["w"] // 2, CAM["h"] // 2
     r = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vf",
                         f"crop={CAM['w']}:{CAM['h']}:{CAM['x']}:{CAM['y']},scale={w}:{h},format=gray",
                         "-f", "rawvideo", "-"], capture_output=True, check=True)
@@ -97,7 +99,9 @@ def cortes_camara(video: Path) -> list[tuple[float, float]]:
     out = []
     for i in range(len(d)):
         fuerza = d[i] / max(float(np.median(d[max(0, i - 15):i + 16])), 0.1)
-        if d[i] >= C["min"] and fuerza >= C["fuerza"] and d[i] == d[max(0, i - 3):i + 4].max():
+        vecinos = max([*d[max(0, i - 2):i], *d[i + 1:i + 3]], default=0.0)
+        salto = d[i] >= C["min_vecinos"] and d[i] >= C["vecinos"] * max(float(vecinos), 0.3)
+        if salto or (d[i] >= C["min"] and fuerza >= C["fuerza"] and d[i] == d[max(0, i - 3):i + 4].max()):
             out.append(((i + 1) / fps, fuerza))
     return out
 
@@ -159,6 +163,24 @@ def fronteras_frase(palabras: list[dict], cortes=(), db=None) -> list[float]:
     return out
 
 
+def alinear_a_cortes(zooms, cortes, imagenes) -> list[list[float]]:
+    """Regla del canal: todo cambio de plano a <= cortes["alinear"] s de un corte del bruto va justo en el corte
+    (un cambio a 2 fotogramas del corte queda rarísimo). Los bordes de imagen no se tocan: mandan los del usuario."""
+    lim = CONFIG["cortes"]["alinear"]
+    bordes_img = [t for im in imagenes for t in (im["a"], im["b"])]
+    out = []
+    for z in zooms:
+        z = list(z)
+        for j, v in enumerate(z):
+            if any(abs(v - t) < 1e-3 for t in bordes_img):
+                continue
+            cerca = [t for t, _ in cortes if abs(t - v) <= lim]
+            if cerca:
+                z[j] = min(cerca, key=lambda t: abs(t - v)) - 0.002
+        out.append(z)
+    return out
+
+
 def tramos_zoom(fronteras: list[float], dur: float, ini: float = 0.0) -> list[list[float]]:
     """Alterna normal / mini-zoom solo en inicios de frase; las frases cortas se juntan hasta durar frase_min.
     El primer plano es siempre normal (regla del canal: nunca se empieza con zoom), también el que empieza en ini."""
@@ -191,8 +213,10 @@ def factor_camara(zooms, f1=W / CAM["w"] + 1e-5, lento=True) -> str:   # + 1e-5:
 def zoom_lento(zooms, cx: float, cy: float) -> str:
     """Zoom lento de todo el fotograma durante cada mini-zoom, hacia (cx, cy) (la cámara): la cámara crece y la
     pantalla con ella, nunca la cámara sola como ventana aislada. Con perspective (subpíxel, sin vibrar), como las
-    imágenes; t = in / FPS porque perspective no tiene t."""
-    s = "+".join(f"gte(in/{FPS},{a:.3f})*lt(in/{FPS},{b:.3f})*{Z['lento_por_segundo']}*(in/{FPS}-{a:.3f})"
+    imágenes; t = (in - 1) / FPS porque perspective no tiene t y su in empieza en 1 (con in / FPS iba un fotograma
+    por delante de la cámara y cada salida del zoom salía en dos fotogramas)."""
+    t = f"((in-1)/{FPS})"
+    s = "+".join(f"gte({t},{a:.3f})*lt({t},{b:.3f})*{Z['lento_por_segundo']}*({t}-{a:.3f})"
                  for a, b in zooms) or "0"
     k = f"(1-1/(1+{s}))"   # fracción recortada: x0 = cx * k, x1 = x0 + W / escala
     x0, y0 = f"{cx}*{k}", f"{cy}*{k}"
@@ -337,9 +361,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def siguiente_salida() -> Path:
     n = 1
-    while (RAIZ / "salida" / f"short-{n}.mp4").exists():
+    while (RAIZ / "salida" / f"short-{n}.mov").exists():
         n += 1
-    return RAIZ / "salida" / f"short-{n}.mp4"
+    return RAIZ / "salida" / f"short-{n}.mov"
 
 
 def main():
@@ -380,7 +404,8 @@ def main():
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
 
-    fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes_camara(video), niveles_voz(video)), imagenes)
+    cortes = cortes_camara(video)
+    fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes, niveles_voz(video)), imagenes)
     if "zooms" in dec:
         zooms = dec["zooms"]   # [] = sin mini-zoom
     elif dec.get("zooms_desde") is not None:
@@ -389,7 +414,7 @@ def main():
         zooms = tramos_zoom(fr[1:], dur, fr[0]) if fr else []
     else:
         zooms = tramos_zoom(fronteras, dur)
-    zooms = zooms_con_imagenes(zooms, imagenes)
+    zooms = alinear_a_cortes(zooms_con_imagenes(zooms, imagenes), cortes, imagenes)
     # "zoom_retraso": {"L4": 4} mueve N fotogramas (negativo = antes) el cambio de zoom más cercano a ese tiempo
     for t, n in dec.get("zoom_retraso", {}).items():
         t = tiempo(t)
@@ -397,6 +422,9 @@ def main():
         if bordes and min(bordes)[0] <= 0.5:
             _, i, j = min(bordes)
             zooms[i][j] += n / FPS
+    # Bordes de zoom a medio fotograma: con un borde entre dos fotogramas, los filtros que usan t y los que usan
+    # in/FPS lo redondeaban distinto y el cambio de plano salía en dos fotogramas (medio zoom y luego el resto)
+    zooms = [[(round(v * FPS) - 0.5) / FPS for v in z] for z in zooms]
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
@@ -519,7 +547,7 @@ def main():
     salida = Path(args.salida).resolve() if args.salida else siguiente_salida()
     salida.parent.mkdir(parents=True, exist_ok=True)
     ff([*entradas, "-/filter_complex", rel(script), "-map", "[vout]", "-map", "[aout]", "-t", f"{dur:.3f}",
-        "-r", str(FPS), *CONFIG["encoder"], "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+        "-r", str(FPS), *CONFIG["encoder"], "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
         "-movflags", "+faststart", rel(salida)])
     print(f"{len(zooms)} mini-zooms, {len(pant)} tramos de pantalla, {len(imagenes)} imágenes, "
           f"{len(completa)} tramos a pantalla completa -> {salida}")

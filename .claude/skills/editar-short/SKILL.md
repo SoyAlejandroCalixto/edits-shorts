@@ -1,6 +1,6 @@
 ---
 name: editar-short
-description: Edita un fragmento de vídeo largo de brutos/ como YouTube Short 1080x1920@30 con el estilo del canal (cámara arriba con mini-zoom periódico, pantalla abajo centrada en lo importante, imágenes que pida el usuario con cam shot, subtítulos amarillos) y lo renderiza en salida/short-N.mp4. Úsala cuando pida editar un short o cambiar algo de uno.
+description: Edita un fragmento de vídeo largo de brutos/ como YouTube Short 1080x1920@30 con el estilo del canal (cámara arriba con mini-zoom periódico, pantalla abajo centrada en lo importante, imágenes que pida el usuario con cam shot, subtítulos amarillos) y lo renderiza en salida/short-N.mov. Úsala cuando pida editar un short o cambiar algo de uno.
 ---
 
 # Editar short
@@ -26,9 +26,10 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
    - **Reel al que reacciona (regla del canal)**: abajo va solo el vídeo del reel, sin bandas negras a los lados
      (como `object-fit: cover`). Mide la caja del vídeo dentro del reel (sin las franjas negras de Instagram, p. ej.
-     `cropdetect`) y elige `ancho` = alto de esa caja / 1,07 (la capa de abajo es 1080x1156), con `centro` en el
-     centro de la caja: llena todo el ancho y recorta un poco sus lados. Ejemplo: caja 512x504 en (696, 298) →
-     `{"centro": [952, 550], "ancho": 470}`.
+     `cropdetect`) y elige `ancho` = el menor entre (alto de esa caja − 6) / 1,16 y (ancho de la caja − 6) (la capa
+     de abajo es 1080x1250 con la cámara actual: alto = 1,16 × ancho; si cambia `camara` en `config.json`, cambia
+     esta proporción), con `centro` en el centro de la caja: llena todo sin bandas negras arriba, abajo ni a los
+     lados. Ejemplo: caja 514x574 en (445, 276) → `{"centro": [702, 562], "ancho": 490}`.
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
    la palabra que indique. Duran automáticamente hasta el fin de frase que deje ≥ 2 s; suenan con cam shot.
    **Zoom en imágenes (regla del canal)**: toda imagen o meme que pida el usuario (abajo o estirado) aparece y
@@ -57,7 +58,10 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    los cortes del bruto (regla del canal)**: el cambio de plano va justo cuando empieza a hablar; si el bruto tiene un
    corte (jump cut) ahí, el zoom cambia en el fotograma exacto del corte. El render detecta los cortes en la cámara
    (`cortes_camara`, `config.json` → `cortes`) y usa el corte en vez del inicio de palabra de Whisper (que llega hasta
-   ~0,25 s tarde); un corte muy claro en una pausa abre frase aunque no haya puntuación. Al verificar, saca los
+   ~0,25 s tarde); un corte muy claro en una pausa abre frase aunque no haya puntuación. **Además, todo cambio de zoom a ≤ 0,3 s
+   de un corte del bruto se pega al corte** (`alinear_a_cortes`, `cortes.alinear`; también cuenta como corte un salto
+   que dobla la diferencia de los 2 fotogramas de cada lado, aunque esté gesticulando): no hace falta `zoom_retraso`
+   para cuadrar con un corte, solo para lo que no es corte (p. ej. el arranque de la voz). Al verificar, saca los
    fotogramas de cada cambio de zoom (`select=eq(n\,N)`) y comprueba que el corte y el zoom coinciden. **Los cambios de
    recorte de abajo (`pantalla`) siguen la misma regla**: el render mueve cada `desde` al inicio de frase más cercano
    (≤ 3 s; `"exacto": true` para no moverlo). Pon pocos tramos: cambia de plano solo cuando cambie de verdad lo que
@@ -74,8 +78,8 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    zoom-in rápido de 0,2 s con ease-in (de menos a más rápido, `aceleracion` 2) y sonido `recursos/swoosh.wav`, y
    luego zoom lento constante (hasta ×1,08) hasta desaparecer de golpe, sin transición.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).
-7. **Renderiza**: `python motor/render.py trabajo/<slug>` → `salida/short-N.mp4` (~15 s).
-8. **Verifica**: `python motor/ver.py salida/short-N.mp4 --cada 3 --ancho 216` y mira la hoja una vez:
+7. **Renderiza**: `python motor/render.py trabajo/<slug>` → `salida/short-N.mov` (~15 s).
+8. **Verifica**: `python motor/ver.py salida/short-N.mov --cada 3 --ancho 216` y mira la hoja una vez:
    lo importante centrado abajo, imágenes en su sitio, subtítulos legibles. Corrige y vuelve a renderizar si hace falta.
 
 ## Cambios que pida después

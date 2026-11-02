@@ -1,12 +1,12 @@
 {
   "salida": {"ancho": 1080, "alto": 1920, "fps": 30},
-  "camara": {"x": 1340, "y": 665, "w": 552, "h": 390},
+  "camara": {"x": 1254, "y": 655, "w": 632, "h": 392},
   "zoom": {
     "factor": 1.18,
     "lento_por_segundo": 0.02,
     "frase_min": 2.5
   },
-  "cortes": {"min": 4, "fuerza": 10, "fuerza_sola": 30, "margen": 0.25},
+  "cortes": {"min": 4, "fuerza": 10, "fuerza_sola": 30, "margen": 0.25, "min_vecinos": 2, "vecinos": 2, "alinear": 0.3},
   "pantalla_por_defecto": {"centro": [640, 520], "ancho": 1000},
   "ajuste_imagen": 0.3,
   "titulo": {"y": 960, "tam": 130, "sombra": 12, "color": "#FFFFFF", "interlineado": 0.74, "entrada_ms": 200, "aceleracion": 2,
