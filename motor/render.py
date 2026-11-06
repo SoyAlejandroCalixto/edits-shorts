@@ -1,6 +1,6 @@
-"""Renderiza un short 1080x1920@30 a salida/short-N.mov (audio PCM: DaVinci Resolve no oye el AAC).
+"""Renderiza un short 1080x1920@30 a salida/short-N.mp4 (H.264 High + AAC 320k, faststart: listo para YouTube y Windows).
 
-Uso: python motor/render.py trabajo/<nombre> [--salida ruta.mov]
+Uso: python motor/render.py trabajo/<nombre> [--salida ruta.mp4]
 
 Lee trabajo/<nombre>/decisiones.json y subs.json:
 {
@@ -11,10 +11,15 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  al que lleva el balón)
                  "centro_zoom": [x, y] opcional: centro durante el mini-zoom (la capa baja 128 px y la cámara tapa sus
                  128 px de arriba); puede quedar por encima del bruto para que lo de arriba (caras) no quede tapado
+                 "seguir_zoom": [[t, x, y], ...] opcional: centro_zoom que va de punto a punto (compensa el zoom lento
+                 de todo el fotograma, que empuja hacia abajo lo de la parte baja de la pantalla)
   "imagenes": [{"t": "L5:3", "archivo": "imagenes/x.jpg"}, ...],          con cam shot; "dur" o "hasta" opcional;
                  "modo": "abajo" (debajo de la cara, sin deformar; por defecto, config "imagen_modo") o "estirar"
                  (solo memes: deformada a toda la pantalla 1080x1920); "plano": "normal" = sin mini-zoom mientras está
-                 (nunca hay cambio de plano dentro de una imagen: empieza y acaba con el mismo)
+                 (nunca hay cambio de plano dentro de una imagen: empieza y acaba con el mismo);
+                 "cam_shot": false = sin cam shot al entrar; "recorte": [x, y, w, h] = trozo de la imagen (px)
+                 que se usa antes de escalar (p. ej. centrar a un personaje en un meme estirado)
+  "cam_shot_inicio": true                                                 opcional: cam shot al empezar el short
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
@@ -35,6 +40,7 @@ Tiempos "t": "L5" = inicio de la línea, "L5:3" = inicio de su palabra 3 (0 = pr
 """
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -361,9 +367,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def siguiente_salida() -> Path:
     n = 1
-    while (RAIZ / "salida" / f"short-{n}.mov").exists():
+    while (RAIZ / "salida" / f"short-{n}.mp4").exists():
         n += 1
-    return RAIZ / "salida" / f"short-{n}.mov"
+    return RAIZ / "salida" / f"short-{n}.mp4"
 
 
 def main():
@@ -399,10 +405,15 @@ def main():
         else:
             b = next((e for e in fins if e - a >= CONFIG["imagen_min_dur"]), dur)
         imagenes.append({"archivo": im["archivo"], "a": a, "b": min(b + 0.1, dur),
-                         "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano")})
+                         "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano"),
+                         "cam_shot": im.get("cam_shot", True), "recorte": im.get("recorte")})
     imagenes.sort(key=lambda i: i["a"])
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
+    # Bordes de imagen a medio fotograma (los mismos fotogramas que muestra el overlay): así el borde de zoom que se
+    # lleva a la imagen cae en el mismo fotograma y el zoom nunca cambia un fotograma antes de que se quite la imagen
+    for im in imagenes:
+        im["a"], im["b"] = ((math.ceil(im[k] * FPS - 1e-6) - 0.5) / FPS for k in ("a", "b"))
 
     cortes = cortes_camara(video)
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes, niveles_voz(video)), imagenes)
@@ -424,7 +435,8 @@ def main():
             zooms[i][j] += n / FPS
     # Bordes de zoom a medio fotograma: con un borde entre dos fotogramas, los filtros que usan t y los que usan
     # in/FPS lo redondeaban distinto y el cambio de plano salía en dos fotogramas (medio zoom y luego el resto)
-    zooms = [[(round(v * FPS) - 0.5) / FPS for v in z] for z in zooms]
+    # (redondeo hacia arriba en el medio: un borde que ya está a medio fotograma, como los de imagen, no se mueve)
+    zooms = [[(math.floor(v * FPS + 0.5 + 1e-6) - 0.5) / FPS for v in z] for z in zooms]
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
@@ -434,13 +446,23 @@ def main():
     zz = en_zoom(zooms)
     # "centro_zoom": centro durante el mini-zoom (la capa de abajo baja (CAM_HZ - CAM_H) / 2 y la cámara tapa otro
     # tanto de arriba); puede subir por encima del bruto: ese relleno negro queda escondido bajo la cámara
-    cxz = pantalla_expr(pant, lambda p: p.get("centro_zoom", [None])[0] or 0)
-    cyz = pantalla_expr(pant, lambda p: p.get("centro_zoom", [0, 0])[1])
-    hay_cz = pantalla_expr(pant, lambda p: 1 if p.get("centro_zoom") else 0)
+    # "seguir_zoom": [[t, x, y], ...] = centro_zoom que se mueve en línea recta (compensa el zoom lento de todo el
+    # fotograma, que empuja hacia abajo lo de abajo: p. ej. para que lo de la parte baja del reel no se salga)
+    cxz = pantalla_expr(pant, lambda p: seguir_expr(p["seguir_zoom"], 1) if p.get("seguir_zoom")
+                        else p.get("centro_zoom", [None])[0] or 0)
+    cyz = pantalla_expr(pant, lambda p: seguir_expr(p["seguir_zoom"], 2) if p.get("seguir_zoom")
+                        else p.get("centro_zoom", [0, 0])[1])
+    hay_cz = pantalla_expr(pant, lambda p: 1 if p.get("centro_zoom") or p.get("seguir_zoom") else 0)
     cz = f"(({zz})*{hay_cz})"
     cx = f"if({cz},{cxz},{cx})"
     cy = f"if({cz},{cyz},{cy})"
     tapa = (CAM_HZ - CAM_H) // 2
+    # Esquina del recorte de abajo (2 px de margen para el desplazamiento subpíxel) y su parte fraccionaria, con t
+    # pasado a fotogramas para perspective, que no tiene t (su in empieza en 1, como en zoom_lento)
+    px = f"max(0,min(trunc(1920*{esc}/2)*2-{W}-2,{cx}*{esc}-{W // 2}))"
+    py = f"max({tapa}*(1-{cz}),min(trunc(1080*{esc}/2)*2+{tapa}-{BOT}-2,{cy}*{esc}-{BOT // 2}+{tapa}))"
+    en_in = lambda e: re.sub(r"\bt\b", f"((in-1)/{FPS})", e)
+    fx, fy = f"({en_in(px)}-floor({en_in(px)}))", f"({en_in(py)}-floor({en_in(py)}))"
 
     # Medio fotograma antes: los cortes del bruto caen justo en un fotograma (2.6667) y redondeado a 3 decimales
     # (2.667) se perdía el primero, que salía partido (cámara ya con el meme, abajo todavía sin él)
@@ -467,9 +489,12 @@ def main():
           # Pantalla: recorte por tramo escalado a la capa de abajo
           f"[vs]scale=w='trunc(1920*{esc}/2)*2':h='trunc(1080*{esc}/2)*2':eval=frame,"
           f"pad=w=iw:h=ih+{tapa}:x=0:y={tapa}:color=black:eval=frame,"
-          # Límites con el tamaño escalado de cada tramo: iw/ih de crop se quedan con los del primer fotograma
-          f"crop={W}:{BOT}:x='max(0,min(trunc(1920*{esc}/2)*2-{W},{cx}*{esc}-{W // 2}))':"
-          f"y='max({tapa}*(1-{cz}),min(trunc(1080*{esc}/2)*2+{tapa}-{BOT},{cy}*{esc}-{BOT // 2}+{tapa}))'[p0]"]
+          # Límites con el tamaño escalado de cada tramo: iw/ih de crop se quedan con los del primer fotograma.
+          # Recorte subpíxel: crop en RGB al píxel entero (en yuv420p solo se mueve de 2 en 2 y un pan lento, como
+          # "seguir_zoom", vibraba: 2 px un fotograma, 0 el siguiente) y el resto con perspective (cubic)
+          f"format=gbrp,crop={W + 2}:{BOT + 2}:x='floor({px})':y='floor({py})',"
+          f"perspective=x0='{fx}':y0='{fy}':x1='{W + 2}+{fx}':y1='{fy}':x2='{fx}':y2='{BOT + 2}+{fy}':"
+          f"x3='{W + 2}+{fx}':y3='{BOT + 2}+{fy}':interpolation=cubic:eval=frame,crop={W}:{BOT}:0:0[p0]"]
     if cara:
         # La cámara del usuario encima de la del otro reactor, en el bruto antes de recortar la pantalla
         x, y, w, h = cara
@@ -497,7 +522,9 @@ def main():
     for k, im in enumerate(imagenes, start=1):
         entradas += ["-loop", "1", "-framerate", str(FPS), "-t", f"{im['b'] - im['a'] + 1 / FPS:.3f}", "-i", im["archivo"]]
         ancho, alto = (W, H) if im["modo"] == "estirar" else (W, BOT)
-        ajuste = f"scale={W}:{H}" if im["modo"] == "estirar" else             f"scale={W}:{BOT}:force_original_aspect_ratio=increase,crop={W}:{BOT}"
+        r = im["recorte"]
+        ajuste = f"crop={r[2]}:{r[3]}:{r[0]}:{r[1]}," if r else ""
+        ajuste += f"scale={W}:{H}" if im["modo"] == "estirar" else             f"scale={W}:{BOT}:force_original_aspect_ratio=increase,crop={W}:{BOT}"
         # Aparece y desaparece de golpe; mientras está, zoom lento constante (como los títulos) desde el centro.
         # Con perspective (remuestreo subpíxel): con scale+crop el tamaño y el recorte van a píxeles enteros
         # y la imagen vibra. m = margen recortado a cada lado, en fracción del tamaño.
@@ -521,7 +548,9 @@ def main():
         fc.append(f"[vf{k}]trim={c['a']:.3f}:{c['b'] + 1 / FPS:.3f},{ajuste},setsar=1,format=yuv420p[c{k}]")
         encima.append((f"c{k}", c["a"], c["b"]))
     # La capa de abajo baja con la cámara en mini-zoom y se centra en el hueco que queda
-    fc.append(f"[lienzo][{ult}]overlay=x=0:y='{CAM_H}+({CAM_HZ}-{CAM_H})/2*({zz})':eval=frame[l1]")
+    # 2 px más arriba, bajo la cámara: su última fila sale semitransparente al escalar (mezcla con el relleno) y
+    # dejaba ver el lienzo negro como una raya entre cámara y pantalla
+    fc.append(f"[lienzo][{ult}]overlay=x=0:y='{CAM_H - 2}+({CAM_HZ}-{CAM_H})/2*({zz})':eval=frame[l1]")
     fc.append("[l1][cam]overlay=0:0[e0]")
     for j, (et, a, b) in enumerate(encima, start=1):
         fc.append(f"[e{j - 1}][{et}]overlay=0:0:eof_action=pass:enable='gte(t,{a:.3f})*lt(t,{b:.3f})'[e{j}]")
@@ -533,7 +562,8 @@ def main():
     amix = ["[0:a]"]
     base = 1 + len(imagenes)
     # Cam shot al entrar cada imagen y swoosh al zoom-in de cada título
-    sonidos = [(im["a"], "recursos/cam shot.wav") for im in imagenes] + \
+    sonidos = [(im["a"], "recursos/cam shot.wav") for im in imagenes if im["cam_shot"]] + \
+              ([(0.0, "recursos/cam shot.wav")] if dec.get("cam_shot_inicio") else []) + \
               [(t["a"], "recursos/swoosh.wav") for t in titulos]
     for j, (a, wav) in enumerate(sonidos):
         entradas += ["-i", wav]
@@ -547,7 +577,7 @@ def main():
     salida = Path(args.salida).resolve() if args.salida else siguiente_salida()
     salida.parent.mkdir(parents=True, exist_ok=True)
     ff([*entradas, "-/filter_complex", rel(script), "-map", "[vout]", "-map", "[aout]", "-t", f"{dur:.3f}",
-        "-r", str(FPS), *CONFIG["encoder"], "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+        "-r", str(FPS), *CONFIG["encoder"], "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
         "-movflags", "+faststart", rel(salida)])
     print(f"{len(zooms)} mini-zooms, {len(pant)} tramos de pantalla, {len(imagenes)} imágenes, "
           f"{len(completa)} tramos a pantalla completa -> {salida}")

@@ -1,6 +1,6 @@
 {
   "salida": {"ancho": 1080, "alto": 1920, "fps": 30},
-  "camara": {"x": 1254, "y": 655, "w": 632, "h": 392},
+  "camara": {"x": 1268, "y": 662, "w": 619, "h": 384},
   "zoom": {
     "factor": 1.18,
     "lento_por_segundo": 0.02,
@@ -25,5 +25,5 @@
     "entrada_blur": 6,
     "difusa": {"borde": 6, "blur": 8, "alfa": "&H80&"}
   },
-  "encoder": ["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak", "-b:v", "12M", "-maxrate", "16M"]
+  "encoder": ["-c:v", "h264_amf", "-profile:v", "high", "-quality", "quality", "-rc", "vbr_peak", "-b:v", "12M", "-maxrate", "16M"]
 }

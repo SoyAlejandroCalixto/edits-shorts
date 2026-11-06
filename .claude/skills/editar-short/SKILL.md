@@ -1,6 +1,6 @@
 ---
 name: editar-short
-description: Edita un fragmento de vídeo largo de brutos/ como YouTube Short 1080x1920@30 con el estilo del canal (cámara arriba con mini-zoom periódico, pantalla abajo centrada en lo importante, imágenes que pida el usuario con cam shot, subtítulos amarillos) y lo renderiza en salida/short-N.mov. Úsala cuando pida editar un short o cambiar algo de uno.
+description: Edita un fragmento de vídeo largo de brutos/ como YouTube Short 1080x1920@30 con el estilo del canal (cámara arriba con mini-zoom periódico, pantalla abajo centrada en lo importante, imágenes que pida el usuario con cam shot, subtítulos amarillos) y lo renderiza en salida/short-N.mp4. Úsala cuando pida editar un short o cambiar algo de uno.
 ---
 
 # Editar short
@@ -12,6 +12,13 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
 ## Flujo
 
 1. **Bruto**: el más reciente de `brutos/` (o el que diga). Las imágenes que pase van en `imagenes/`.
+1b. **Encuadre de la cámara (regla del canal)**: el usuario a veces mueve su cámara en OBS. Comprueba en cada bruto que
+   `camara` de `config.json` sigue cuadrando: mide los bordes de la caja de la cámara (salto fuerte de gradiente en
+   columnas y filas) y recórtala a **todo su ancho, sin comerse nada de los lados ni dejar ni un píxel de fuera**
+   (1 px de margen dentro de cada borde), quitando solo pared por arriba para mantener la proporción w/h ≈ 1,61
+   (elige w y h con 1080 × h / w a ≤ 0,02 de un número par: si no, queda una raya negra de 1-2 px bajo la cámara):
+   cuanto más ancha, menos alta queda arriba y más sitio tiene la pantalla de abajo. Mira el recorte con
+   `ffmpeg -ss 10 -i <bruto> -vf "crop=w:h:x:y" -frames:v 1 trabajo/cam.png` antes de renderizar.
 2. **Transcribe**: `python motor/transcribir.py "brutos/<video>.mp4"` (~30 s por short).
 3. **Subtítulos**: `python motor/subtitulos.py trabajo/<slug>` → `subs.json` (trozos de ≤4 palabras).
    Léelo y corrige solo el `texto` (MAYÚSCULAS): nombres propios (DE JONG, XAVI, MBAPPÉ, GÜLER…), palabras mal oídas
@@ -22,14 +29,18 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Por cada tramo, mira UN fotograma con cuadrícula: `python motor/ver.py <bruto> --t 12.5`
      (líneas cada 160 px con su coordenada real). Lee las coordenadas de la cuadrícula: no las estimes a ojo.
    - Elige `centro` = centro de lo importante (lo que señala o de lo que habla) y `ancho` (≤ 1040) para que quepa;
-     el alto es ≈ 1,03 × ancho. Evita la cámara del bruto (x ≥ 1339, y ≥ 641), que ya sale arriba.
+     el alto es ≈ 1,03 × ancho. Evita la cámara del bruto (la caja de `camara` en `config.json`), que ya sale arriba.
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
    - **Reel al que reacciona (regla del canal)**: abajo va solo el vídeo del reel, sin bandas negras a los lados
      (como `object-fit: cover`). Mide la caja del vídeo dentro del reel (sin las franjas negras de Instagram, p. ej.
      `cropdetect`) y elige `ancho` = el menor entre (alto de esa caja − 6) / 1,16 y (ancho de la caja − 6) (la capa
-     de abajo es 1080x1250 con la cámara actual: alto = 1,16 × ancho; si cambia `camara` en `config.json`, cambia
-     esta proporción), con `centro` en el centro de la caja: llena todo sin bandas negras arriba, abajo ni a los
-     lados. Ejemplo: caja 514x574 en (445, 276) → `{"centro": [702, 562], "ancho": 490}`.
+     de abajo es 1080x1250 con la cámara actual: alto = 1,16 × ancho; si cambia la proporción de `camara` en
+     `config.json`, cambia esta), con `centro` en el centro de la caja: llena todo sin bandas negras arriba, abajo ni
+     a los lados. Ejemplo: caja 514x574 en (445, 276) → `{"centro": [702, 562], "ancho": 490}`.
+     **Si el reel lleva fondo blureado a los lados** (una captura o collage dentro del reel con su propio fondo
+     difuminado), la caja es solo el contenido nítido: nunca se ve la banda blureada.
+     **Encuadra lo que dice**: si el reel es una lista (años, jugadores…), cambia el `centro` en vertical al tramo
+     del que habla en cada frase (p. ej. baja al de 2026-2027 cuando lo nombra).
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
    la palabra que indique. Duran automáticamente hasta el fin de frase que deje ≥ 2 s; suenan con cam shot.
    **Zoom en imágenes (regla del canal)**: toda imagen o meme que pida el usuario (abajo o estirado) aparece y
@@ -78,8 +89,8 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    zoom-in rápido de 0,2 s con ease-in (de menos a más rápido, `aceleracion` 2) y sonido `recursos/swoosh.wav`, y
    luego zoom lento constante (hasta ×1,08) hasta desaparecer de golpe, sin transición.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).
-7. **Renderiza**: `python motor/render.py trabajo/<slug>` → `salida/short-N.mov` (~15 s).
-8. **Verifica**: `python motor/ver.py salida/short-N.mov --cada 3 --ancho 216` y mira la hoja una vez:
+7. **Renderiza**: `python motor/render.py trabajo/<slug>` → `salida/short-N.mp4` (~15 s).
+8. **Verifica**: `python motor/ver.py salida/short-N.mp4 --cada 3 --ancho 216` y mira la hoja una vez:
    lo importante centrado abajo, imágenes en su sitio, subtítulos legibles. Corrige y vuelve a renderizar si hace falta.
 
 ## Cambios que pida después
