@@ -20,7 +20,7 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  "cam_shot": false = sin cam shot al entrar; "recorte": [x, y, w, h] = trozo de la imagen (px)
                  que se usa antes de escalar (p. ej. centrar a un personaje en un meme estirado);
                  "archivo" puede ser un clip de vídeo (.mp4, .mov…, sin su audio) con "clip_desde": s del clip
-                 donde empieza
+                 donde empieza; "zoom_por_segundo" = zoom lento de esa imagen (por defecto zoom_imagen_por_segundo)
   "cam_shot_inicio": true                                                 opcional: cam shot al empezar el short
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
@@ -412,7 +412,8 @@ def main():
         imagenes.append({"archivo": im["archivo"], "a": a, "b": min(b + 0.1, dur),
                          "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano"),
                          "cam_shot": im.get("cam_shot", True), "recorte": im.get("recorte"),
-                         "clip_desde": float(im.get("clip_desde", 0))})
+                         "clip_desde": float(im.get("clip_desde", 0)),
+                         "zoom": im.get("zoom_por_segundo", CONFIG["zoom_imagen_por_segundo"])})
     imagenes.sort(key=lambda i: i["a"])
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
@@ -473,10 +474,12 @@ def main():
     en_in = lambda e: re.sub(r"\bt\b", f"((in-1)/{FPS})", e)
     fx, fy = f"({en_in(px)}-floor({en_in(px)}))", f"({en_in(py)}-floor({en_in(py)}))"
 
-    # Medio fotograma antes: los cortes del bruto caen justo en un fotograma (2.6667) y redondeado a 3 decimales
-    # (2.667) se perdía el primero, que salía partido (cámara ya con el meme, abajo todavía sin él)
-    medio = 0.5 / FPS
-    completa = [{**c, "a": tiempo(c["desde"]) - medio, "b": tiempo(c["hasta"]) - medio}
+    # Al primer fotograma de salida en o tras el corte (como los bordes de zoom): con "medio fotograma antes" un corte
+    # de 60 fps en fotograma impar (30,75) metía el fotograma anterior al corte y salía la cámara estirada antes del
+    # meme. La tolerancia (0,05 fotogramas) es para los cortes redondeados a 3 decimales (2,667 por 2,6667): sin ella
+    # se perdía el primer fotograma del meme
+    borde = lambda v: (math.ceil(v * FPS - 0.05) - 0.5) / FPS
+    completa = [{**c, "a": max(0.0, borde(tiempo(c["desde"]))), "b": borde(tiempo(c["hasta"]))}
                 for c in dec.get("completa", [])]
     ass = trabajo / "subs.ass"
     titulos = [{**t, "a": tiempo(t["desde"]), "b": tiempo(t["hasta"])} for t in dec.get("titulos", [])]
@@ -543,7 +546,7 @@ def main():
         # Aparece y desaparece de golpe; mientras está, zoom lento constante (como los títulos) desde el centro.
         # Con perspective (remuestreo subpíxel): con scale+crop el tamaño y el recorte van a píxeles enteros
         # y la imagen vibra. m = margen recortado a cada lado, en fracción del tamaño.
-        m = f"((1-1/(1+{CONFIG['zoom_imagen_por_segundo']}*in/{FPS}))/2)"
+        m = f"((1-1/(1+{im['zoom']}*in/{FPS}))/2)"
         ajuste += (f",format=gbrp,perspective=x0='W*{m}':y0='H*{m}':x1='W*(1-{m})':y1='H*{m}':"
                    f"x2='W*{m}':y2='H*(1-{m})':x3='W*(1-{m})':y3='H*(1-{m})':interpolation=cubic:eval=frame")
         fc.append(f"[{k}:v]{ajuste},setsar=1,format=yuv420p,setpts=PTS-STARTPTS+{im['a']:.3f}/TB[i{k}]")
