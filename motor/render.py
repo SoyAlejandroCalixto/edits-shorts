@@ -436,7 +436,9 @@ def main():
     # Bordes de zoom a medio fotograma: con un borde entre dos fotogramas, los filtros que usan t y los que usan
     # in/FPS lo redondeaban distinto y el cambio de plano salía en dos fotogramas (medio zoom y luego el resto)
     # (redondeo hacia arriba en el medio: un borde que ya está a medio fotograma, como los de imagen, no se mueve)
-    zooms = [[(math.floor(v * FPS + 0.5 + 1e-6) - 0.5) / FPS for v in z] for z in zooms]
+    # Siempre hacia arriba, al primer fotograma de salida en o tras el borde: un corte del bruto de 60 fps en
+    # fotograma impar (15,083 s) cae entre dos de 30 fps y, al más cercano, el zoom entraba 1 fotograma antes del corte
+    zooms = [[(math.ceil(v * FPS - 1e-6) - 0.5) / FPS for v in z] for z in zooms]
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
