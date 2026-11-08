@@ -18,7 +18,9 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  (solo memes: deformada a toda la pantalla 1080x1920); "plano": "normal" = sin mini-zoom mientras está
                  (nunca hay cambio de plano dentro de una imagen: empieza y acaba con el mismo);
                  "cam_shot": false = sin cam shot al entrar; "recorte": [x, y, w, h] = trozo de la imagen (px)
-                 que se usa antes de escalar (p. ej. centrar a un personaje en un meme estirado)
+                 que se usa antes de escalar (p. ej. centrar a un personaje en un meme estirado);
+                 "archivo" puede ser un clip de vídeo (.mp4, .mov…, sin su audio) con "clip_desde": s del clip
+                 donde empieza
   "cam_shot_inicio": true                                                 opcional: cam shot al empezar el short
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
@@ -55,6 +57,9 @@ CAM_H = round(W * CAM["h"] / CAM["w"] / 2) * 2          # altura de la cámara e
 CAM_HZ = round(CAM_H * Z["factor"] / 2) * 2             # altura de la cámara en mini-zoom (902)
 BOT = H - CAM_H                                          # alto de la capa de abajo (1156)
 PAD = round(CAM["h"] * CAM_HZ / CAM_H / 2) * 2 + 4       # alto de la cámara con relleno transparente debajo
+
+
+VIDEOS = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}   # "archivo" de imagen que es un clip de vídeo
 
 
 def ff(args: list[str]):
@@ -406,7 +411,8 @@ def main():
             b = next((e for e in fins if e - a >= CONFIG["imagen_min_dur"]), dur)
         imagenes.append({"archivo": im["archivo"], "a": a, "b": min(b + 0.1, dur),
                          "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano"),
-                         "cam_shot": im.get("cam_shot", True), "recorte": im.get("recorte")})
+                         "cam_shot": im.get("cam_shot", True), "recorte": im.get("recorte"),
+                         "clip_desde": float(im.get("clip_desde", 0))})
     imagenes.sort(key=lambda i: i["a"])
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
@@ -414,6 +420,7 @@ def main():
     # lleva a la imagen cae en el mismo fotograma y el zoom nunca cambia un fotograma antes de que se quite la imagen
     for im in imagenes:
         im["a"], im["b"] = ((math.ceil(im[k] * FPS - 1e-6) - 0.5) / FPS for k in ("a", "b"))
+        im["a"] = max(0.0, im["a"])   # una imagen en 0 quedaba en -0,017 s y adelay negativo rompía el audio
 
     cortes = cortes_camara(video)
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes, niveles_voz(video)), imagenes)
@@ -522,10 +529,16 @@ def main():
     ult = "p0"
     encima = []   # capas a pantalla completa por encima de la cámara: (etiqueta, a, b)
     for k, im in enumerate(imagenes, start=1):
-        entradas += ["-loop", "1", "-framerate", str(FPS), "-t", f"{im['b'] - im['a'] + 1 / FPS:.3f}", "-i", im["archivo"]]
-        ancho, alto = (W, H) if im["modo"] == "estirar" else (W, BOT)
+        largo = f"{im['b'] - im['a'] + 1 / FPS:.3f}"
+        if Path(im["archivo"]).suffix.lower() in VIDEOS:
+            # Clip de vídeo (sin su audio): desde "clip_desde" s del clip, a FPS
+            entradas += ["-ss", f"{im['clip_desde']:.3f}", "-t", largo, "-i", im["archivo"]]
+            ajuste = f"fps={FPS},"
+        else:
+            entradas += ["-loop", "1", "-framerate", str(FPS), "-t", largo, "-i", im["archivo"]]
+            ajuste = ""
         r = im["recorte"]
-        ajuste = f"crop={r[2]}:{r[3]}:{r[0]}:{r[1]}," if r else ""
+        ajuste += f"crop={r[2]}:{r[3]}:{r[0]}:{r[1]}," if r else ""
         ajuste += f"scale={W}:{H}" if im["modo"] == "estirar" else             f"scale={W}:{BOT}:force_original_aspect_ratio=increase,crop={W}:{BOT}"
         # Aparece y desaparece de golpe; mientras está, zoom lento constante (como los títulos) desde el centro.
         # Con perspective (remuestreo subpíxel): con scale+crop el tamaño y el recorte van a píxeles enteros
