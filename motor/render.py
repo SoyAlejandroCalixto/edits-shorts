@@ -435,7 +435,7 @@ def main():
         anim = [tiempo(x) - im["a"] for x in bar["anim"]] if bar.get("anim") else None
         clip = trabajo / f"barra-{k}.mp4"
         generar(clip, im["b"] - im["a"] + 2 / FPS, W, BOT, FPS, bar.get("de", 33), bar.get("a", 66), anim,
-                **{c: bar[c] for c in ("sufijo", "fondo", "color_numero") if c in bar})
+                **{c: bar[c] for c in ("sufijo", "fondo", "color_numero", "desenfoque", "oscurecer") if c in bar})
         im["archivo"], im["modo"] = rel(clip), "abajo"
 
     cortes = cortes_camara(video)
@@ -482,6 +482,9 @@ def main():
     cx = f"if({cz},{cxz},{cx})"
     cy = f"if({cz},{cyz},{cy})"
     tapa = (CAM_HZ - CAM_H) // 2
+    escalas = [W / min(p["ancho"], ANCHO_MAX) for p in pant]
+    pw = max(math.trunc(1920 * e / 2) * 2 for e in escalas)
+    ph = max(math.trunc(1080 * e / 2) * 2 for e in escalas) + tapa
     # Esquina del recorte de abajo (2 px de margen para el desplazamiento subpíxel) y su parte fraccionaria, con t
     # pasado a fotogramas para perspective, que no tiene t (su in empieza en 1, como en zoom_lento)
     px = f"max(0,min(trunc(1920*{esc}/2)*2-{W}-2,{cx}*{esc}-{W // 2}))"
@@ -515,7 +518,9 @@ def main():
           f"y='max(0,(trunc({PAD}*{fcam}/2)*2*{CAM['h']}/{PAD}-{CAM_HZ})/2)'[cam]",
           # Pantalla: recorte por tramo escalado a la capa de abajo
           f"[vs]scale=w='trunc(1920*{esc}/2)*2':h='trunc(1080*{esc}/2)*2':eval=frame,"
-          f"pad=w=iw:h=ih+{tapa}:x=0:y={tapa}:color=black:eval=frame,"
+          # A tamaño fijo (el mayor de todos los tramos): crop limita x/y con el tamaño del primer fotograma y, si un
+          # tramo posterior tenía más zoom que el primero, su recorte se quedaba subido (no llegaba a lo de abajo)
+          f"pad=w={pw}:h={ph}:x=0:y={tapa}:color=black:eval=frame,"
           # Límites con el tamaño escalado de cada tramo: iw/ih de crop se quedan con los del primer fotograma.
           # Recorte subpíxel: crop en RGB al píxel entero (en yuv420p solo se mueve de 2 en 2 y un pan lento, como
           # "seguir_zoom", vibraba: 2 px un fotograma, 0 el siguiente) y el resto con perspective (cubic)

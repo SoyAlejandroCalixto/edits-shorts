@@ -4,9 +4,10 @@ Uso desde decisiones.json, como una imagen más (va abajo, debajo de la cara):
   {"t": "L3:8", "hasta": 18.931, "barra": {"de": 33, "a": 66, "anim": [15.9, 17.7]}}
   "anim" = [inicio, fin] del llenado en s del bruto (antes queda quieta en "de", después en "a"); por defecto
   empieza 0,4 s tras aparecer y dura el 60 % del tiempo en pantalla. Opcional: "sufijo" ("%" por defecto),
-  "fondo" ("#232323"), "color_numero" ("#FFC83D").
+  "fondo" ("#232323" o una imagen, p. ej. "imagenes/estadio.webp": la rellena, difuminada "desenfoque" px y
+  oscurecida a "oscurecer"), "color_numero" ("#FFC83D").
 
-Fondo #232323, barra blanca con el relleno de rojo (al empezar) a verde (al acabar) según avanza, y el número
+Fondo (color o imagen difuminada), barra blanca con el relleno de rojo (al empezar) a verde (al acabar) según avanza, y el número
 encima en dorado con la misma sombra dura y halo negro que los subtítulos. render.py llama a generar().
 
 Prueba suelta: python motor/barra.py trabajo/barra.mp4 --dur 3.7
@@ -46,16 +47,25 @@ def _rect_redondo(w: int, h: int, r: float, ss: int = 4) -> np.ndarray:
 
 def generar(dst: Path, dur: float, w: int, h: int, fps: int, de: float = 33, a: float = 66,
             anim: tuple[float, float] | None = None, sufijo: str = "%", fondo: str = "#232323",
-            color_numero: str = "#FFC83D"):
+            color_numero: str = "#FFC83D", desenfoque: float = 7, oscurecer: float = 0.8):
     """Escribe en dst un clip w x h de dur s. anim = (inicio, fin) del llenado en s desde el inicio del clip."""
     t0, t1 = anim if anim else (min(0.4, dur * 0.2), min(0.4, dur * 0.2) + dur * 0.6)
     bw, bh = round(w * 0.82), round(w * 0.105)            # barra
     bx, by = (w - bw) // 2, round(h * 0.47)
     borde = max(4, bh // 14)                               # margen blanco alrededor del relleno
     fondo_barra = _rect_redondo(bw, bh, bh / 2)
-    fondo_rgb = np.array(_rgb(fondo), np.float32)
     base = np.empty((h, w, 3), np.float32)
-    base[:] = fondo_rgb
+    if fondo.startswith("#"):
+        base[:] = np.array(_rgb(fondo), np.float32)
+    else:
+        # Imagen de fondo: rellena todo (como object-fit: cover), difuminada y algo oscurecida para que resalten
+        # la barra y el número
+        img = Image.open(RAIZ / fondo).convert("RGB")
+        k = max(w / img.width, h / img.height)
+        img = img.resize((round(img.width * k), round(img.height * k)), Image.LANCZOS)
+        x0, y0 = (img.width - w) // 2, (img.height - h) // 2
+        img = img.crop((x0, y0, x0 + w, y0 + h)).filter(ImageFilter.GaussianBlur(desenfoque))
+        base[:] = np.asarray(img, np.float32) * oscurecer
     sombra = _rect_redondo(bw, bh, bh / 2)                 # sombra suave bajo la barra
     sombra = np.asarray(Image.fromarray((sombra * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(14)),
                         np.float32) / 255 * 0.55
