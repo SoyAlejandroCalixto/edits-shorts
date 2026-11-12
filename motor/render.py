@@ -6,7 +6,8 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
 {
   "video": "brutos/x.mp4",
   "pantalla": [{"desde": 0, "centro": [640, 520], "ancho": 1000}, ...],   recorte de pantalla por tramo (s del bruto,
-                 píxeles del bruto 1920x1080); se mantiene hasta el siguiente "desde". ancho <= 1040.
+                 píxeles del bruto 1920x1080); se mantiene hasta el siguiente "desde". ancho <= ANCHO_MAX
+                 (≈ 930 con la cámara actual: la capa de abajo, alto ≈ 1,16 × ancho, no puede pasar de 1080)
                  "seguir": [[t, x, y], ...] opcional: el centro va en línea recta de punto a punto (jugadas: seguir
                  al que lleva el balón)
                  "centro_zoom": [x, y] opcional: centro durante el mini-zoom (la capa baja 128 px y la cámara tapa sus
@@ -21,7 +22,9 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  que se usa antes de escalar (p. ej. centrar a un personaje en un meme estirado);
                  "archivo" puede ser un clip de vídeo (.mp4, .mov…, sin su audio) con "clip_desde": s del clip
                  donde empieza; "zoom_por_segundo" = zoom lento de esa imagen (por defecto zoom_imagen_por_segundo)
-  "cam_shot_inicio": true                                                 opcional: cam shot al empezar el short
+                 "barra": {"de": 33, "a": 66, "anim": [t0, t1]} en vez de "archivo" = animación de barra que se
+                 rellena (fondo #232323, relleno de rojo a verde, número dorado; ver motor/barra.py)
+  "cam_shot_inicio": true                                                opcional: cam shot al empezar el short
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
                  9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
@@ -56,6 +59,9 @@ CAM, Z, SUB = CONFIG["camara"], CONFIG["zoom"], CONFIG["subtitulos"]
 CAM_H = round(W * CAM["h"] / CAM["w"] / 2) * 2          # altura de la cámara en reposo (764)
 CAM_HZ = round(CAM_H * Z["factor"] / 2) * 2             # altura de la cámara en mini-zoom (902)
 BOT = H - CAM_H                                          # alto de la capa de abajo (1156)
+# Ancho máximo del recorte de abajo: escalado, el bruto debe cubrir los BOT + 2 px de alto del recorte (si no, crop
+# se sale del fotograma y ffmpeg se cae con 0xc0000005 sin decir nada)
+ANCHO_MAX = min(1040, math.floor(1080 * W / (BOT + 3)))
 PAD = round(CAM["h"] * CAM_HZ / CAM_H / 2) * 2 + 4       # alto de la cámara con relleno transparente debajo
 
 
@@ -65,7 +71,7 @@ VIDEOS = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}   # "archivo" de imagen que e
 def ff(args: list[str]):
     r = subprocess.run(["ffmpeg", "-v", "error", "-y", *args], cwd=RAIZ, capture_output=True, text=True)
     if r.returncode:
-        raise RuntimeError(f"ffmpeg falló:\n{r.stderr[-3000:]}")
+        raise RuntimeError(f"ffmpeg falló ({r.returncode & 0xFFFFFFFF:#x}):\n{r.stderr[-3000:]}")
 
 
 def rel(p) -> str:
@@ -409,7 +415,7 @@ def main():
             b = a + im["dur"]
         else:
             b = next((e for e in fins if e - a >= CONFIG["imagen_min_dur"]), dur)
-        imagenes.append({"archivo": im["archivo"], "a": a, "b": min(b + 0.1, dur),
+        imagenes.append({"archivo": im.get("archivo"), "barra": im.get("barra"), "a": a, "b": min(b + 0.1, dur),
                          "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano"),
                          "cam_shot": im.get("cam_shot", True), "recorte": im.get("recorte"),
                          "clip_desde": float(im.get("clip_desde", 0)),
@@ -422,6 +428,15 @@ def main():
     for im in imagenes:
         im["a"], im["b"] = ((math.ceil(im[k] * FPS - 1e-6) - 0.5) / FPS for k in ("a", "b"))
         im["a"] = max(0.0, im["a"])   # una imagen en 0 quedaba en -0,017 s y adelay negativo rompía el audio
+    # "barra": animación de barra rellenándose (motor/barra.py), generada como clip para la capa de abajo
+    for k, im in enumerate(i for i in imagenes if i["barra"]):
+        from barra import generar
+        bar = im["barra"]
+        anim = [tiempo(x) - im["a"] for x in bar["anim"]] if bar.get("anim") else None
+        clip = trabajo / f"barra-{k}.mp4"
+        generar(clip, im["b"] - im["a"] + 2 / FPS, W, BOT, FPS, bar.get("de", 33), bar.get("a", 66), anim,
+                **{c: bar[c] for c in ("sufijo", "fondo", "color_numero") if c in bar})
+        im["archivo"], im["modo"] = rel(clip), "abajo"
 
     cortes = cortes_camara(video)
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes, niveles_voz(video)), imagenes)
@@ -449,7 +464,7 @@ def main():
     zooms = [[(math.ceil(v * FPS - 1e-6) - 0.5) / FPS for v in z] for z in zooms]
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
-    esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], 1040))
+    esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], ANCHO_MAX))
     cx = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 1) if p.get("seguir") else p["centro"][0])
     cy = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 2) if p.get("seguir") else p["centro"][1])
     fcam = factor_camara(zooms, lento=False)

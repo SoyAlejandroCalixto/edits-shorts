@@ -27,7 +27,7 @@ que aparecen con zoom-in de 0,1 s en ease con desenfoque de movimiento y desapar
 
 ## Entorno
 - Windows. Python 3.12 + venv `.venv`: desde la raíz, `.venv/Scripts/python.exe motor/...` (el `python` de mise
-  no siempre activa el venv). Dependencias: `uv pip install --python .venv/Scripts/python.exe faster-whisper
+  no siempre activa el venv). Dependencias: `uv pip install --python .venv/Scripts/python.exe faster-whisper pillow
   "av<16" numpy soundfile`.
 - ffmpeg en PATH (rutas relativas a la raíz en los filtros). GPU AMD: codifica con `h264_amf`.
 - Salida: `.mp4` H.264 High + AAC 320k 48 kHz con faststart, lo mejor para subir a YouTube y abrir en Windows.

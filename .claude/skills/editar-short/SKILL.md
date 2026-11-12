@@ -28,7 +28,7 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Cambios de pantalla: `ffmpeg -hide_banner -i <bruto> -vf "crop=1300:1080:0:0,scale=480:-1,scdet=threshold=6" -an -f null - 2>&1 | grep -o "lavfi.scd.time: [0-9.]*"`
    - Por cada tramo, mira UN fotograma con cuadrícula: `python motor/ver.py <bruto> --t 12.5`
      (líneas cada 160 px con su coordenada real). Lee las coordenadas de la cuadrícula: no las estimes a ojo.
-   - Elige `centro` = centro de lo importante (lo que señala o de lo que habla) y `ancho` (≤ 1040) para que quepa;
+   - Elige `centro` = centro de lo importante (lo que señala o de lo que habla) y `ancho` (≤ 930 con la cámara actual; el render lo limita a `ANCHO_MAX`) para que quepa;
      el alto es ≈ 1,03 × ancho. Evita la cámara del bruto (la caja de `camara` en `config.json`), que ya sale arriba.
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
    - **Reel al que reacciona (regla del canal)**: abajo va solo el vídeo del reel, sin bandas negras a los lados
@@ -57,6 +57,10 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    inicio o fin de la imagen. Si el usuario quiere la imagen sin zoom: `"plano": "normal"` en esa imagen.
    **Las imágenes que pasa el usuario son imágenes normales, no memes: van siempre abajo, debajo de su cara, como si
    las comentara** (modo `"abajo"`, el de por defecto). Solo se estira una imagen si el usuario dice que es un meme.
+5a. **Barra animada** (si pide una barra que se rellena, p. ej. posesión 33 → 66): una imagen más con `"barra"` en
+   vez de `"archivo"`: `{"t": "L3:8", "hasta": 18.931, "barra": {"de": 33, "a": 66, "anim": [16.0, 17.6]}}` (`anim` =
+   inicio y fin del llenado en s del bruto, al ritmo de lo que dice). Va abajo con fondo #232323, barra blanca, relleno
+   de rojo a verde según avanza y número dorado con la sombra de los subtítulos (`motor/barra.py`).
 5b. **Memes estirados (regla del canal)**: los memes que ya vienen en el bruto a pantalla completa (detectados con los
    cambios de escena) van **estirados a toda la pantalla 1080x1920 aunque se deformen**, en plan shitpost, tapando
    cámara y pantalla (subtítulos encima): `"completa": [{"desde", "hasta", "modo": "estirar"}]`. Lo que el usuario
