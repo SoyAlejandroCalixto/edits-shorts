@@ -29,7 +29,18 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    - Por cada tramo, mira UN fotograma con cuadrícula: `python motor/ver.py <bruto> --t 12.5`
      (líneas cada 160 px con su coordenada real). Lee las coordenadas de la cuadrícula: no las estimes a ojo.
    - Elige `centro` = centro de lo importante (lo que señala o de lo que habla) y `ancho` (≤ 930 con la cámara actual; el render lo limita a `ANCHO_MAX`) para que quepa;
-     el alto es ≈ 1,03 × ancho. Evita la cámara del bruto (la caja de `camara` en `config.json`), que ya sale arriba.
+     el alto es ≈ 1,16 × ancho. Evita la cámara del bruto (la caja de `camara` en `config.json`), que ya sale arriba.
+   - **Enfocar lo que menciona (regla del canal, la pedirá a menudo)**: cuando habla de algo concreto de la pantalla
+     (la posesión, el marcador, un jugador, "por aquí"…), abajo va justo eso, que suele estar donde tiene el ratón en
+     ese momento: busca el cursor con `ver.py --t` en las palabras que lo nombran. **El enfoque dura todo el plano**
+     (de cambio de plano a cambio de plano: bordes de mini-zoom y de imagen, que `render.py` imprime al final como
+     `planos:`), nunca un cambio de recorte a mitad de plano; el render lleva cada `desde` al borde de plano más
+     cercano. Si en un plano nombra dos cosas, enfoca la principal o encuadra las dos. Renderiza una vez, mira los
+     `planos:` y asigna un tramo por plano. **Si la página hace scroll dentro del plano**, mide el desplazamiento con
+     `python motor/scroll.py <bruto> <desde> <hasta>` y ponlo en `"seguir"` (y = y antes del scroll + desplazamiento,
+     un punto por fotograma del scroll) para que lo enfocado no se mueva; con medidas a ojo el recorte vibra.
+     Verifica que no queda ningún fotograma suelto en los cambios (cada cambio de plano y de recorte en el mismo
+     fotograma).
    - Si no hay nada claro, `{"centro": [640, 520], "ancho": 1000}`.
    - **Reel al que reacciona (regla del canal)**: abajo va solo el vídeo del reel, sin bandas negras a los lados
      (como `object-fit: cover`). Mide la caja del vídeo dentro del reel (sin las franjas negras de Instagram, p. ej.
@@ -79,7 +90,8 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    para cuadrar con un corte, solo para lo que no es corte (p. ej. el arranque de la voz). Al verificar, saca los
    fotogramas de cada cambio de zoom (`select=eq(n\,N)`) y comprueba que el corte y el zoom coinciden. **Los cambios de
    recorte de abajo (`pantalla`) siguen la misma regla**: el render mueve cada `desde` al inicio de frase más cercano
-   (≤ 3 s; `"exacto": true` para no moverlo). Pon pocos tramos: cambia de plano solo cuando cambie de verdad lo que
+   (≤ 3 s; `"exacto": true` para no moverlo) y luego al borde de plano (mini-zoom o imagen) más cercano, en el mismo
+   fotograma que el zoom (esto último siempre, también con `"exacto"`). Pon pocos tramos: cambia de plano solo cuando cambie de verdad lo que
    se ve, no por cada detalle. Los tramos `completa` se ajustan solos al fotograma exacto del corte del bruto (sin
    fotogramas partidos al empezar o acabar un meme): usa los tiempos de `scdet` tal cual. Los subtítulos
    llevan, además de la sombra dura negra, un halo negro difuminado semitransparente sin desplazamiento

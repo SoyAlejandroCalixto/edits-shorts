@@ -257,6 +257,24 @@ def alinear_pantalla(tramos: list[dict], fronteras: list[float]) -> list[dict]:
     return out
 
 
+def pantalla_a_planos(tramos: list[dict], zooms, imagenes) -> list[dict]:
+    """Regla del canal: el recorte de abajo solo cambia cuando cambia el plano (borde de mini-zoom o de imagen), nunca
+    a mitad de un plano ni un fotograma antes o después del zoom (salía un fotograma suelto con el zoom ya cambiado y
+    el recorte viejo). Cada "desde" va al borde de plano más cercano (≤ 3 s), también los "exacto" (que solo evitan
+    alinear_pantalla); si dos tramos caen en el mismo plano, manda el último."""
+    bordes = sorted({v for z in zooms for v in z} | {t for im in imagenes for t in (im["a"], im["b"])})
+    out = []
+    for p in sorted(tramos, key=lambda p: p["desde"]):
+        cerca = [b for b in bordes if abs(b - p["desde"]) <= 3.0]
+        if p["desde"] > 0 and cerca:
+            p = {**p, "desde": min(cerca, key=lambda b: abs(b - p["desde"]))}
+        if out and p["desde"] <= out[-1]["desde"]:
+            out[-1] = p
+        else:
+            out.append(p)
+    return out
+
+
 def seguir_expr(puntos: list, i: int) -> str:
     """Centro que se mueve en línea recta entre los puntos [t, x, y] de "seguir" (coordenada i: 1 = x, 2 = y)."""
     puntos = sorted(puntos)
@@ -464,6 +482,7 @@ def main():
     zooms = [[(math.ceil(v * FPS - 1e-6) - 0.5) / FPS for v in z] for z in zooms]
     pant = dec.get("pantalla") or [{"desde": 0, **CONFIG["pantalla_por_defecto"]}]
     pant = alinear_pantalla(pant, fronteras)
+    pant = pantalla_a_planos(pant, zooms, imagenes)
     esc = pantalla_expr(pant, lambda p: W / min(p["ancho"], ANCHO_MAX))
     cx = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 1) if p.get("seguir") else p["centro"][0])
     cy = pantalla_expr(pant, lambda p: seguir_expr(p["seguir"], 2) if p.get("seguir") else p["centro"][1])
@@ -619,6 +638,9 @@ def main():
         "-movflags", "+faststart", rel(salida)])
     print(f"{len(zooms)} mini-zooms, {len(pant)} tramos de pantalla, {len(imagenes)} imágenes, "
           f"{len(completa)} tramos a pantalla completa -> {salida}")
+    # Planos (bordes de mini-zoom e imagen): el recorte de abajo solo cambia en estos tiempos
+    planos = sorted({0.0} | {v for z in zooms for v in z} | {t for im in imagenes for t in (im["a"], im["b"])})
+    print("planos:", " ".join(f"{v:.3f}" for v in planos))
 
 
 if __name__ == "__main__":
