@@ -21,7 +21,8 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  "cam_shot": false = sin cam shot al entrar; "recorte": [x, y, w, h] = trozo de la imagen (px)
                  que se usa antes de escalar (p. ej. centrar a un personaje en un meme estirado);
                  "archivo" puede ser un clip de vídeo (.mp4, .mov…, sin su audio) con "clip_desde": s del clip
-                 donde empieza; "zoom_por_segundo" = zoom lento de esa imagen (por defecto zoom_imagen_por_segundo)
+                 donde empieza; "zoom_por_segundo" = zoom lento de esa imagen (por defecto zoom_imagen_por_segundo);
+                 sus bordes se pegan al corte del bruto a <= cortes["alinear"] s; "exacto": true = no
                  "barra": {"de": 33, "a": 66, "anim": [t0, t1]} en vez de "archivo" = animación de barra que se
                  rellena (fondo #232323, relleno de rojo a verde, número dorado; ver motor/barra.py)
   "cam_shot_inicio": true                                                opcional: cam shot al empezar el short
@@ -182,7 +183,8 @@ def fronteras_frase(palabras: list[dict], cortes=(), db=None) -> list[float]:
 
 def alinear_a_cortes(zooms, cortes, imagenes) -> list[list[float]]:
     """Regla del canal: todo cambio de plano a <= cortes["alinear"] s de un corte del bruto va justo en el corte
-    (un cambio a 2 fotogramas del corte queda rarísimo). Los bordes de imagen no se tocan: mandan los del usuario."""
+    (un cambio a 2 fotogramas del corte queda rarísimo). Los bordes de imagen no se tocan aquí: ya van pegados
+    a los cortes al leer las imágenes (salvo "exacto")."""
     lim = CONFIG["cortes"]["alinear"]
     bordes_img = [t for im in imagenes for t in (im["a"], im["b"])]
     out = []
@@ -437,7 +439,19 @@ def main():
                          "modo": im.get("modo", CONFIG.get("imagen_modo", "abajo")), "plano": im.get("plano"),
                          "cam_shot": im.get("cam_shot", True), "recorte": im.get("recorte"),
                          "clip_desde": float(im.get("clip_desde", 0)),
-                         "zoom": im.get("zoom_por_segundo", CONFIG["zoom_imagen_por_segundo"])})
+                         "zoom": im.get("zoom_por_segundo", CONFIG["zoom_imagen_por_segundo"]),
+                         "exacto": im.get("exacto", False)})
+    # Regla del canal: todo cambio de plano a <= cortes["alinear"] s de un corte del bruto va justo en el corte,
+    # también los bordes de imagen (la palabra de Whisper o un "hasta" a ojo caían 1-3 fotogramas antes o después
+    # del corte: salto en la cara y, un fotograma después, el cambio de plano). "exacto": true = no se mueve
+    cortes = cortes_camara(video)
+    for im in imagenes:
+        if im["exacto"]:
+            continue
+        for k in ("a", "b"):
+            cerca = [t for t, _ in cortes if abs(t - im[k]) <= CONFIG["cortes"]["alinear"]]
+            if cerca and im[k] < dur:
+                im[k] = min(cerca, key=lambda t: abs(t - im[k]))
     imagenes.sort(key=lambda i: i["a"])
     for x, y in zip(imagenes, imagenes[1:]):
         x["b"] = min(x["b"], y["a"])
@@ -456,7 +470,6 @@ def main():
                 **{c: bar[c] for c in ("sufijo", "fondo", "color_numero", "desenfoque", "oscurecer") if c in bar})
         im["archivo"], im["modo"] = rel(clip), "abajo"
 
-    cortes = cortes_camara(video)
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes, niveles_voz(video)), imagenes)
     if "zooms" in dec:
         zooms = dec["zooms"]   # [] = sin mini-zoom

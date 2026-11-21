@@ -63,6 +63,10 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    **Imagen y cambio de plano juntos (regla del canal)**: si un cambio de plano (zoom o recorte de abajo) queda a
    ≤ `ajuste_imagen` (0,3 s) del inicio o fin de una imagen, el render lo mueve justo a ese borde; nunca debe quedar
    un fotograma con la imagen ya quitada y el plano sin cambiar (o al revés). Verifica los fotogramas de cada borde.
+   **Bordes de imagen pegados a los cortes (regla del canal)**: el inicio y el fin de cada imagen a ≤ 0,3 s de un
+   corte del bruto se mueven solos al fotograma exacto del corte (la palabra de Whisper o un `hasta` a ojo caían
+   1-3 fotogramas desfasados: salto en la cara y el cambio de plano un fotograma después). `"exacto": true` en la
+   imagen para no moverla.
    **Mismo plano durante toda la imagen (regla del canal)**: nunca hay cambio de plano (zoom o recorte) a mitad de
    una imagen; el render quita esas fronteras y lleva los bordes de zoom (también los de `"zooms"` forzados) al
    inicio o fin de la imagen. Si el usuario quiere la imagen sin zoom: `"plano": "normal"` en esa imagen.
