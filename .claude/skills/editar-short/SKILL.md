@@ -23,7 +23,14 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
 3. **Subtítulos**: `python motor/subtitulos.py trabajo/<slug>` → `subs.json` (trozos de ≤4 palabras).
    Léelo y corrige solo el `texto` (MAYÚSCULAS): nombres propios (DE JONG, XAVI, MBAPPÉ, GÜLER…), palabras mal oídas
    (usa el contexto del `transcript.md`) y nombres partidos entre dos trozos (pasa la palabra al trozo vecino).
-   No toques los tiempos.
+   No toques los tiempos, salvo los inicios que Whisper estira (regla del canal): cuando suena el reel o el
+   público, Whisper alarga palabras y el subtítulo salía segundos antes de que hablara. `subtitulos.py` avisa de las
+   palabras sospechosas (`¿estirada?`): mira su boca con `python motor/ver.py <bruto> --boca <t0> <t1>` (tira cada
+   0,1 s con el tiempo del bruto) y pon el `s` del trozo en el primer fotograma con la boca abriéndose. Comprueba
+   también que no falte nada al final (un "eh" tras la última palabra suele perderse): mira la boca hasta el final.
+   **Voz del reel sin subtítulos (regla del canal)**: lo que dice el del reel al que reacciona no se subtitula (el
+   reel ya trae los suyos): borra de `subs.json` los trozos de los tramos de `"reaccion"`; solo lleva subtítulos lo
+   que dice el usuario.
 4. **Recortes de pantalla** (lo que va abajo, en píxeles del bruto 1920x1080):
    - Cambios de pantalla: `ffmpeg -hide_banner -i <bruto> -vf "crop=1300:1080:0:0,scale=480:-1,scdet=threshold=6" -an -f null - 2>&1 | grep -o "lavfi.scd.time: [0-9.]*"`
    - Por cada tramo, mira UN fotograma con cuadrícula: `python motor/ver.py <bruto> --t 12.5`
@@ -50,6 +57,12 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
      a los lados. Ejemplo: caja 514x574 en (445, 276) → `{"centro": [702, 562], "ancho": 490}`.
      **Si el reel lleva fondo blureado a los lados** (una captura o collage dentro del reel con su propio fondo
      difuminado), la caja es solo el contenido nítido: nunca se ve la banda blureada.
+     **Cambios de plano solo con el vídeo pausado (regla del canal)**: mientras el vídeo al que reacciona está en
+     marcha (hable él o no), plano normal sin zoom y sin ningún cambio de plano (ni zoom ni recorte de abajo). Pon
+     siempre `"reel_caja": [x, y, w, h]` (la caja del vídeo del reel en el bruto): el render detecta los tramos en
+     marcha (movimiento dentro de la caja, `config.json` → `en_marcha`), los imprime (`reel en marcha:`) y los trata
+     como `"reaccion"`; al pausar, el zoom entra en el siguiente inicio de frase. Pon los cambios de `pantalla` en
+     las pausas.
      **Encuadra lo que dice**: si el reel es una lista (años, jugadores…), cambia el `centro` en vertical al tramo
      del que habla en cada frase (p. ej. baja al de 2026-2027 cuando lo nombra).
 5. **Imágenes** (solo las que pida el usuario, donde diga): `{"t": "L5:3", "archivo": "imagenes/x.jpg"}` anclada a
@@ -84,7 +97,12 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
 5c. **Zooms y subtítulos** son automáticos: el mini-zoom solo entra o sale al empezar una frase (tras coma/punto o
    palabra que abre frase; un "¿eh?" o un "¿no?" siempre cierra la frase anterior, nunca abre una: el cambio va luego, en la frase siguiente), juntando frases hasta durar ≥ `frase_min` (2,5 s); nunca a mitad de frase. **Primer plano
    normal (regla del canal)**: el short nunca empieza con zoom; el primer tramo es siempre el plano normal (también
-   si fuerzas `"zooms"`: ninguno empieza en 0). **Sincronía con
+   si fuerzas `"zooms"`: ninguno empieza en 0). **Reaccionando sin hablar, plano normal (regla del canal)**: mientras
+   el usuario solo escucha (suena la voz del reel, que Whisper transcribe como si fuera suya), su cara va siempre sin
+   zoom: `"reaccion": [["L2", "L4"], ["L8", "L10"]]` (de la primera línea del reel a la línea en que vuelve a hablar).
+   Para saber qué líneas son del reel, mira su boca en la cámara en esas palabras (cerrada = reel; los textos
+   quemados del reel suelen coincidir con lo que dice). El zoom en curso se cierra al empezar el tramo y vuelve al
+   hablar. **Sincronía con
    los cortes del bruto (regla del canal)**: el cambio de plano va justo cuando empieza a hablar; si el bruto tiene un
    corte (jump cut) ahí, el zoom cambia en el fotograma exacto del corte. El render detecta los cortes en la cámara
    (`cortes_camara`, `config.json` → `cortes`) y usa el corte en vez del inicio de palabra de Whisper (que llega hasta
@@ -106,8 +124,18 @@ las imágenes que pida el usuario y la corrección de los subtítulos.
    que los subtítulos (`config.json` → `titulo`): `"titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]`
    en MAYÚSCULAS; `\\N` en el JSON = salto de línea (la línea que pida abajo). **Estilo fijo del canal**: blanco por
    defecto (`"color": "#RRGGBB"` si pide otro), tamaño 130 siempre, líneas juntas (`interlineado` 0,74: la parte alta de la línea de abajo queda a ~mitad del hueco entre ambas), entra con
-   zoom-in rápido de 0,2 s con ease-in (de menos a más rápido, `aceleracion` 2) y sonido `recursos/swoosh.wav`, y
-   luego zoom lento constante (hasta ×1,08) hasta desaparecer de golpe, sin transición.
+   zoom-in rápido de 0,2 s con ease-in (de menos a más rápido, `aceleracion` 3: curva cúbica, que se note que acelera; nunca lineal, en todo texto que no sea subtítulo) y sonido `recursos/swoosh.wav`, y
+   luego zoom lento constante (hasta ×1,08) hasta desaparecer de golpe, sin transición. `"y"` en el título = su
+   centro vertical (p. ej. 330 = arriba). **Emojis (regla del canal)**: siempre con la fuente de Apple
+   (`fuentes/AppleColorEmoji.ttf`) y solo para los emojis; el resto del texto con la del canal. Es automático: un
+   título con emojis se pinta como imagen (`motor/texto.py`) con la misma animación, sombra y halo.
+5e. **Inicio sin su cara (solo si el usuario lo avisa; no lo decidas tú)**: a veces empieza con su voz en off sobre el
+   reel y su cámara sale después. Ese tramo va con el vídeo del reel a pantalla completa:
+   `"completa": [{"desde": 0, "hasta": <fotograma en que sale la cámara>, "modo": "caja", "caja": [x, y, w, h]}]`
+   (caja = el vídeo del reel sin bordes redondeados ni franjas negras; cover, sin deformar). El momento exacto en
+   que aparece la cámara: primer fotograma con la caja de `camara` no negra. Si pide texto, va arriba (título con
+   `"y": 330`) durante ese tramo. Los subtítulos siguen (es su voz). Pon `"zooms_desde"` en la línea en que sale su
+   cara para que ese primer plano sea normal.
 6. **Escribe `trabajo/<slug>/decisiones.json`** (esquema en el docstring de `motor/render.py`).
 7. **Renderiza**: `python motor/render.py trabajo/<slug>` → `salida/short-N.mp4` (~15 s).
 8. **Verifica**: `python motor/ver.py salida/short-N.mp4 --cada 3 --ancho 216` y mira la hoja una vez:

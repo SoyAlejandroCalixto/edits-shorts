@@ -51,9 +51,16 @@ def main():
     if dst.exists() and "--forzar" not in sys.argv:
         print(f"{dst} ya existe (usa --forzar para regenerarlo)")
         return
-    subs = trozos(cargar_palabras(trabajo))
+    palabras = cargar_palabras(trabajo)
+    subs = trozos(palabras)
     dst.write_text(json.dumps(subs, ensure_ascii=False, indent=0), encoding="utf-8")
     print(f"{len(subs)} subtítulos -> {dst}")
+    # Whisper estira palabras (sobre todo la primera de una frase) cuando suena el reel o el público: el subtítulo
+    # salía segundos antes de que hablara. Avisa de las sospechosas para comprobar con la boca (ver.py --boca)
+    for w in palabras:
+        if w["e"] - w["s"] > S.get("palabra_max", 0.6) * (1 + len(w["w"]) / 8):
+            print(f"  ¿estirada? {w['w']!r} {w['s']:.2f}-{w['e']:.2f}: mira dónde empieza a hablar con "
+                  f"python motor/ver.py <bruto> --boca {max(0, w['s'] - 0.3):.1f} {w['e'] + 0.3:.1f}")
 
 
 if __name__ == "__main__":

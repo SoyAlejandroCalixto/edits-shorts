@@ -8,7 +8,11 @@ ancho, solo pared quitada por arriba para que sea más horizontal y la pantalla 
 `motor/config.json`) con mini-zoom de todo el short (la cámara crece y empuja la pantalla; nunca un zoom solo dentro
 de su hueco, como ventana aislada):
 el mini-zoom entra y sale solo al empezar frase (frases cortas juntas, ≥ 2,5 s) (salto suave ×1,18) y, mientras dura, zoom lento progresivo (0,02/s) de todo el fotograma, cámara y pantalla juntas, hacia el centro de la cámara, sin tocar los subtítulos (nunca solo dentro de la cámara como entorno aislado); un "¿eh?" o un "¿no?" siempre cierra la frase anterior, nunca abre una (no lleva cambio de plano delante: el cambio va luego, en la frase siguiente); el primer plano es
-siempre normal, nunca se empieza con zoom; si el bruto tiene
+siempre normal, nunca se empieza con zoom; mientras reacciona sin hablar (suena la voz del reel) su cara va siempre
+en plano normal, sin zoom (`"reaccion"`), y el zoom vuelve al empezar a hablar; mientras el vídeo al que reacciona
+está en marcha (hable él o no) el plano es siempre normal, sin zoom y sin ningún cambio de plano: solo se cambia de
+plano con el vídeo pausado (`"reel_caja"`: el render detecta solo cuándo está en marcha y, al pausarlo, el zoom entra
+en el siguiente inicio de frase); si el bruto tiene
 un corte (jump cut) al empezar la frase, el zoom entra o sale en el fotograma exacto del corte, nunca desfasado (todo cambio de plano a ≤ 0,3 s de un corte se pega solo al corte); pantalla abajo
 recortada sobre lo importante (si es un reel al que reacciona, solo el vídeo del reel llenando todo el ancho, sin bandas negras a los lados: como `object-fit: cover`, recortando un poco sus lados), con los cambios de plano también al empezar frase; cuando habla de algo concreto de la pantalla (la posesión, el
 marcador, un jugador…) abajo enfoca justo eso, donde tiene el ratón, durante todo el plano (de cambio de plano a cambio
@@ -17,21 +21,28 @@ página hace scroll el recorte la sigue para que lo enfocado no se mueva; imáge
 aparece y desaparece de golpe, sin animación, con un zoom lento constante y suave (subpíxel, sin vibrar) desde el centro (nunca desde una esquina) mientras está (`zoom_imagen_por_segundo`), y si un cambio de plano
 queda cerca de su inicio o fin se mueve a ese mismo fotograma (nunca un fotograma suelto entre imagen y plano); nunca hay cambio de plano a mitad de una imagen: empieza y acaba con el mismo plano (`"plano": "normal"` en la imagen = sin zoom mientras está);
 títulos que pida el usuario grandes en el centro (tamaño 130, blancos salvo que pida otro color, líneas juntas: interlineado 0,74),
-con zoom-in de 0,2 s en ease-in (de menos a más rápido) sonando `recursos/swoosh.wav`, y zoom lento constante
-hasta desaparecer sin transición;
+con zoom-in de 0,2 s en ease-in (acelerando, de menos a más rápido; nunca lineal, en todo texto salvo subtítulos) sonando `recursos/swoosh.wav`, y zoom lento constante
+hasta desaparecer sin transición (si llevan emojis, los emojis con `fuentes/AppleColorEmoji.ttf` y el resto con la
+fuente del canal: `motor/texto.py`);
+inicio sin la cara del usuario (solo cuando él lo avisa: su voz en off sobre el reel antes de que salga su cámara):
+ese tramo va con el vídeo del reel a pantalla completa (`"completa"` con `"modo": "caja"`), con el texto que pida
+arriba si pide texto, y el primer plano con su cara es normal (`"zooms_desde"`);
 memes del bruto estirados a toda la pantalla 1080x1920 aunque se deformen, salvo lo que el usuario diga que no es
-meme; subtítulos amarillos en MAYÚSCULAS, Sofia Sans Black Italic con sombra dura y halo negro difuminado,
-que aparecen con zoom-in de 0,1 s en ease con desenfoque de movimiento y desaparecen de golpe, sin animación.
+meme; subtítulos amarillos en MAYÚSCULAS (solo lo que dice el usuario: la voz del reel al que reacciona nunca se
+subtitula, el reel ya trae los suyos), Sofia Sans Black Italic con sombra dura y halo negro difuminado,
+que empiezan cuando de verdad empieza a hablar (Whisper estira palabras con el reel sonando: se comprueba con la boca) y aparecen con zoom-in de 0,1 s en ease con desenfoque de movimiento y desaparecen de golpe, sin animación.
 
 ## Carpetas
 - `brutos/` fragmentos ya recortados (1920x1080). `imagenes/` imágenes que pasa el usuario.
 - `salida/` `short-N.mp4`. `trabajo/<slug>/` transcripción, subs, decisiones (borrable al terminar).
-- `recursos/cam shot.wav`, `recursos/swoosh.wav`, `fuentes/SofiaSans-BlackItalic.ttf`, `motor/` scripts y `config.json`.
+- `recursos/cam shot.wav`, `recursos/swoosh.wav`, `fuentes/SofiaSans-BlackItalic.ttf`,
+  `fuentes/AppleColorEmoji.ttf` (fuente alternativa solo para los emojis; CBDT con solo el tamaño de 96 px para que
+  quepa en GitHub), `motor/` scripts y `config.json`.
 
 ## Entorno
 - Windows. Python 3.12 + venv `.venv`: desde la raíz, `.venv/Scripts/python.exe motor/...` (el `python` de mise
   no siempre activa el venv). Dependencias: `uv pip install --python .venv/Scripts/python.exe faster-whisper pillow
-  "av<16" numpy soundfile`.
+  "av<16" numpy soundfile fonttools`.
 - ffmpeg en PATH (rutas relativas a la raíz en los filtros). GPU AMD: codifica con `h264_amf`.
 - Salida: `.mp4` H.264 High + AAC 320k 48 kHz con faststart, lo mejor para subir a YouTube y abrir en Windows.
 

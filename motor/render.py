@@ -28,9 +28,17 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
   "cam_shot_inicio": true                                                opcional: cam shot al empezar el short
   "completa": [{"desde": 2.67, "hasta": 4.53, "modo": "estirar"}, ...],   tramos del propio bruto a pantalla completa
                  (tapan cámara y pantalla; los subtítulos siguen encima). "estirar" = el fotograma 16:9 deformado a
-                 9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto
+                 9:16 (memes); "proporcion" = recorte 9:16 sin deformar centrado en "centro": [x, y] del bruto;
+                 "caja" = solo la caja "caja": [x, y, w, h] del bruto (el vídeo de un reel) llenando toda la
+                 pantalla sin deformar ni bandas (cover, centrado; "centro": [x, y] opcional para mover el recorte):
+                 para el inicio sin la cara del usuario (su voz en off sobre el reel), solo cuando él lo pide
   "zooms": [[2.0, 5.5], ...]                                              opcional: fuerza los tramos de mini-zoom ([] = ninguno)
-  "zooms_desde": "L3"                                                     opcional: sin mini-zoom antes de ese tiempo; el
+  "reaccion": [["L2", "L4"], ...]                                         opcional: tramos en que solo reacciona sin hablar
+                 (suena el reel): plano normal, sin mini-zoom, todo el tramo; al volver a hablar entra el zoom
+  "reel_caja": [x, y, w, h]                                              opcional: caja del vídeo al que reacciona en el
+                 bruto; mientras está en marcha (se mueve), plano normal y sin cambios de plano (regla del canal: solo
+                 se cambia de plano con el vídeo pausado); tras pausar, el zoom entra en el siguiente inicio de frase
+  "zooms_desde": "L3"                                               opcional: sin mini-zoom antes de ese tiempo; el
                  plano que empieza ahí también es normal, el primer zoom entra en la frase siguiente
   "zoom_retraso": {"L4": 4}                                               opcional: retrasa N fotogramas el cambio de zoom
                  más cercano a ese tiempo (≤ 0,5 s)
@@ -40,7 +48,8 @@ Lee trabajo/<nombre>/decisiones.json y subs.json:
                  reel vertical) a pantalla completa, sin la cámara de arriba; el mini-zoom acerca hacia
                  "centro_zoom": [x, y] (por defecto el centro de cara_encima). Sin imágenes ni "completa"
   "titulos": [{"desde": 0, "hasta": 1.565, "texto": "¿VENDER A\\NMBAPPÉ?"}]  título grande en el centro (\\N = salto
-                 de línea)
+                 de línea); "y": su centro vertical en px de la salida (por defecto titulo.y, el centro); con emojis
+                 se pinta como imagen (motor/texto.py: emojis con fuentes/AppleColorEmoji.ttf, el resto con la del canal)
 }
 Tiempos "t": "L5" = inicio de la línea, "L5:3" = inicio de su palabra 3 (0 = primera), o segundos.
 """
@@ -54,6 +63,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from comun import CONFIG, RAIZ, cargar_palabras, lineas  # noqa: E402
+from texto import render as render_texto, secuencia, tiene_emoji  # noqa: E402
 
 W, H, FPS = CONFIG["salida"]["ancho"], CONFIG["salida"]["alto"], CONFIG["salida"]["fps"]
 CAM, Z, SUB = CONFIG["camara"], CONFIG["zoom"], CONFIG["subtitulos"]
@@ -122,6 +132,33 @@ def cortes_camara(video: Path) -> list[tuple[float, float]]:
         if salto or (d[i] >= C["min"] and fuerza >= C["fuerza"] and d[i] == d[max(0, i - 3):i + 4].max()):
             out.append(((i + 1) / fps, fuerza))
     return out
+
+
+def reel_en_marcha(video: Path, caja) -> list[list[float]]:
+    """Tramos [a, b] (s) en que el vídeo al que reacciona está en marcha: hay movimiento dentro de su caja del bruto
+    (fracción de píxeles que cambian > umbral; el cursor solo no llega). Movimientos separados por ≤ hueco s son el
+    mismo tramo (el vídeo del navegador va a menos fps y repite fotogramas); los de < min s se ignoran."""
+    import numpy as np
+    C = CONFIG["en_marcha"]
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=r_frame_rate",
+                        "-of", "csv=p=0", str(video)], capture_output=True, text=True, check=True)
+    num, _, den = r.stdout.split()[0].partition("/")
+    fps = float(num) / float(den or 1)
+    x, y, w, h = caja
+    sw, sh = 150, max(2, round(150 * h / w / 2) * 2)
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vf",
+                        f"crop={w}:{h}:{x}:{y},scale={sw}:{sh},format=gray", "-f", "rawvideo", "-"],
+                       capture_output=True, check=True)
+    f = np.frombuffer(r.stdout, np.uint8).reshape(-1, sh, sw).astype(np.int16)
+    d = (np.abs(np.diff(f, axis=0)) > 6).mean(axis=(1, 2))
+    segs = []
+    for i in np.where(d > C["umbral"])[0]:
+        if segs and i - segs[-1][1] <= C["hueco"] * fps:
+            segs[-1][1] = i
+        else:
+            segs.append([i, i])
+    # i = diferencia entre i e i + 1: el primer fotograma que se mueve es i + 1
+    return [[(a + 1) / fps, (b + 1) / fps] for a, b in segs if (b - a) / fps >= C["min"]]
 
 
 def niveles_voz(video: Path):
@@ -200,11 +237,26 @@ def alinear_a_cortes(zooms, cortes, imagenes) -> list[list[float]]:
     return out
 
 
-def tramos_zoom(fronteras: list[float], dur: float, ini: float = 0.0) -> list[list[float]]:
+def tramos_zoom(fronteras: list[float], dur: float, ini: float = 0.0, reaccion=()) -> list[list[float]]:
     """Alterna normal / mini-zoom solo en inicios de frase; las frases cortas se juntan hasta durar frase_min.
-    El primer plano es siempre normal (regla del canal: nunca se empieza con zoom), también el que empieza en ini."""
+    El primer plano es siempre normal (regla del canal: nunca se empieza con zoom), también el que empieza en ini.
+    reaccion = tramos [a, b] en que el usuario solo reacciona sin hablar (suena el reel): plano normal todo el tramo
+    (regla del canal: su cara siempre sin zoom mientras escucha). El zoom en curso se cierra en a (si duraba menos de
+    frase_min se quita) y al volver a hablar en b entra el mini-zoom."""
+    reac = sorted(reaccion)
+    inicios, finales = {a for a, _ in reac}, {b for _, b in reac}
+    fr = sorted({t for t in fronteras if not any(a - 1e-3 <= t <= b + 1e-3 for a, b in reac)}
+                | {t for r in reac for t in r if t > ini})
     zoom, out = False, []
-    for t in fronteras:
+    for t in fr:
+        if t in inicios:
+            if zoom and t - ini >= Z["frase_min"]:
+                out.append([ini, t])
+            zoom, ini = False, t
+            continue
+        if t in finales:
+            zoom, ini = dur - t >= Z["frase_min"], t
+            continue
         if t - ini >= Z["frase_min"] and dur - t >= Z["frase_min"]:
             if zoom:
                 out.append([ini, t])
@@ -371,6 +423,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # el mismo zoom para no pisarse.
     T = CONFIG["titulo"]
     for t in titulos:
+        if tiene_emoji(t["texto"]):
+            continue   # con emojis va como imagen (titulo_emoji): libass no pinta emojis en color
+        ty = t.get("y", T["y"])
         c = t.get("color", T["color"]).lstrip("#")
         color = f"\\1c&H{c[4:6]}{c[2:4]}{c[0:2]}&"
         n = max(1, round(T["entrada_ms"] / 1000 * FPS))
@@ -388,12 +443,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             tramos.append((t["a"] + n / FPS - medio, t["b"], off, off * T["zoom_final"], 100, zf))
             for a, b, y0, y1, z0, z1 in tramos:
                 ms = round((b - a) * 1000)
-                tag = (f"\\an5\\move({W // 2},{T['y'] + y0:.0f},{W // 2},{T['y'] + y1:.0f},0,{ms})\\fs{T['tam']}"
+                tag = (f"\\an5\\move({W // 2},{ty + y0:.0f},{W // 2},{ty + y1:.0f},0,{ms})\\fs{T['tam']}"
                        f"\\fscx{z0:.1f}\\fscy{z0:.1f}\\t(0,{ms},\\fscx{z1:.1f}\\fscy{z1:.1f})")
                 filas.append(f"Dialogue: 2,{ts(a)},{ts(b)},S,,0,0,0,,{{{halo.replace(pos, tag)}}}{linea}")
                 filas.append(f"Dialogue: 3,{ts(a)},{ts(b)},S,,0,0,0,,"
                              f"{{{tag}{color}\\shad{T['sombra']}\\blur0}}{linea}")
     dst.write_text(cab + "\n".join(filas) + "\n", encoding="utf-8")
+
+
+def titulo_emoji(t: dict, carpeta: Path) -> tuple[str, int, int, int]:
+    """Título con emojis como secuencia PNG con la misma animación que los de libass (motor/texto.py).
+    Devuelve (patrón de los PNG, primer fotograma, x, y) para superponerlo."""
+    T = CONFIG["titulo"]
+    k0 = math.ceil(t["a"] * FPS - 1e-6)
+    # Hasta el primer fotograma en o tras "hasta", sin incluirlo (como los tramos "completa"; 0,05 de tolerancia por
+    # los cortes redondeados a 3 decimales: 2,667 por 2,6667 metía el primer fotograma con la cara)
+    n = max(1, math.ceil(t["b"] * FPS - 0.05) - k0)
+    d = SUB["difusa"]
+    img = render_texto(t["texto"], T["tam"], t.get("color", T["color"]), T["interlineado"], T["sombra"],
+                       d["borde"], d["blur"], 1 - int(d["alfa"].strip("&H"), 16) / 255)
+    w, h = secuencia(img, carpeta, n, FPS, T["entrada_ms"], T["aceleracion"], T["zoom_final"])
+    return rel(carpeta) + "/%03d.png", k0, W // 2 - w // 2, round(t.get("y", T["y"]) - h / 2)
 
 
 def siguiente_salida() -> Path:
@@ -471,14 +541,41 @@ def main():
         im["archivo"], im["modo"] = rel(clip), "abajo"
 
     fronteras = ajustar_a_imagenes(fronteras_frase(palabras, cortes, niveles_voz(video)), imagenes)
+    # "reaccion": tramos en que solo escucha el reel; cada borde va a la frontera de frase más cercana (≤ 0,5 s)
+    reaccion = []
+    for a, b in dec.get("reaccion", []):
+        r = [tiempo(a), tiempo(b)]
+        r = [min(fronteras, key=lambda f: abs(f - v)) if fronteras and min(abs(f - v) for f in fronteras) <= 0.5
+             else v for v in r]
+        reaccion.append(r)
+    # "reel_caja": regla del canal, mientras el vídeo al que reacciona está en marcha el plano es normal y no hay
+    # cambios de plano; solo se cambia con el vídeo pausado. Cada tramo en marcha cuenta como "reaccion": el zoom se
+    # cierra al arrancar el vídeo y, tras pausarlo, entra en el primer inicio de frase (no a mitad de frase); si ese
+    # inicio cae ya en el siguiente tramo en marcha, la pausa no tiene cambio de plano (se juntan)
+    if dec.get("reel_caja"):
+        marcha = reel_en_marcha(video, dec["reel_caja"])
+        print("reel en marcha:", " ".join(f"{a:.2f}-{b:.2f}" for a, b in marcha))
+        juntos = []
+        for a, b in marcha:
+            if juntos and juntos[-1][1] >= a:
+                juntos[-1][1] = max(juntos[-1][1], b)
+            else:
+                juntos.append([a, b])
+            sig = next((f for f in fronteras if f >= juntos[-1][1] - 1e-3), dur)
+            juntos[-1][1] = sig
+        # Bordes al corte del bruto si hay uno a <= cortes["alinear"] s (p. ej. al darle al play)
+        for r in juntos:
+            cerca = [t - 0.002 for t, _ in cortes if abs(t - r[0]) <= CONFIG["cortes"]["alinear"]]
+            r[0] = min(cerca, key=lambda t: abs(t - r[0])) if cerca else r[0]
+        reaccion += [r for r in juntos if r[1] - r[0] > 1e-3]
     if "zooms" in dec:
         zooms = dec["zooms"]   # [] = sin mini-zoom
     elif dec.get("zooms_desde") is not None:
         # Desde ahí (p. ej. al volver a hablar tras un reel), y ese primer plano también normal
         fr = [f for f in fronteras if f >= tiempo(dec["zooms_desde"]) - 0.5]
-        zooms = tramos_zoom(fr[1:], dur, fr[0]) if fr else []
+        zooms = tramos_zoom(fr[1:], dur, fr[0], reaccion) if fr else []
     else:
-        zooms = tramos_zoom(fronteras, dur)
+        zooms = tramos_zoom(fronteras, dur, 0.0, reaccion)
     zooms = alinear_a_cortes(zooms_con_imagenes(zooms, imagenes), cortes, imagenes)
     # "zoom_retraso": {"L4": 4} mueve N fotogramas (negativo = antes) el cambio de zoom más cercano a ese tiempo
     for t, n in dec.get("zoom_retraso", {}).items():
@@ -575,8 +672,8 @@ def main():
         fx, fy = (zx - rx) / rw, (zy - ry) / rh
         fr = factor_camara(zooms, max(W / rw, H / rh) + 1e-4)   # sin el pelo, trunc deja 1918 de alto
         sw, sh = f"trunc({rw}*{fr}/2)*2", f"trunc({rh}*{fr}/2)*2"
-        if imagenes or completa:
-            sys.exit("reel: sin imágenes ni tramos a pantalla completa")
+        if imagenes or completa or any(tiene_emoji(t["texto"]) for t in titulos):
+            sys.exit("reel: sin imágenes, tramos a pantalla completa ni títulos con emojis")
         fc_reel = [f"[0:v]fps={FPS},split=2[vs0][vcara]", *fc[-2:],
               f"[vs]crop={rw}:{rh}:{rx}:{ry},scale=w='{sw}':h='{sh}':eval=frame,"
               f"crop={W}:{H}:x='({sw}-{W})*{fx:.4f}':y='({sh}-{H})*{fy:.4f}',setsar=1,"
@@ -610,6 +707,15 @@ def main():
     for k, c in enumerate(completa):
         if c.get("modo", "estirar") == "estirar":
             ajuste = f"scale={W}:{H}"
+        elif c["modo"] == "caja":
+            # Cover de la caja: llena 1080x1920 sin deformar ni bandas, recortando lo que sobra
+            x, y, w, h = c["caja"]
+            e = max(W / w, H / h)
+            cx, cy = c.get("centro") or [x + w / 2, y + h / 2]
+            ox = max(0, min(w * e - W, (cx - x) * e - W / 2))
+            oy = max(0, min(h * e - H, (cy - y) * e - H / 2))
+            ajuste = (f"crop={w}:{h}:{x}:{y},scale={math.ceil(w * e / 2) * 2}:{math.ceil(h * e / 2) * 2},"
+                      f"crop={W}:{H}:{ox:.0f}:{oy:.0f}")
         else:
             cw = round(1080 * W / H / 2) * 2
             x = max(0, min(1920 - cw, c["centro"][0] - cw // 2))
@@ -624,13 +730,22 @@ def main():
     fc.append("[l1][cam]overlay=0:0[e0]")
     for j, (et, a, b) in enumerate(encima, start=1):
         fc.append(f"[e{j - 1}][{et}]overlay=0:0:eof_action=pass:enable='gte(t,{a:.3f})*lt(t,{b:.3f})'[e{j}]")
-    fc.append(f"[e{len(encima)}]{zoom_lento(zooms, W / 2, CAM_HZ / 2)},"
-              f"subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]")
+    # Títulos con emojis: secuencia PNG encima de todo (tras el zoom lento, como los de libass), bajo los subtítulos
+    fc.append(f"[e{len(encima)}]{zoom_lento(zooms, W / 2, CAM_HZ / 2)},format=yuv420p[t0]")
+    ult = "t0"
+    for k, t in enumerate(t for t in titulos if tiene_emoji(t["texto"])):
+        patron, k0, x, y = titulo_emoji(t, trabajo / f"titulo-{k}")
+        n_in = entradas.count("-i")
+        entradas += ["-framerate", str(FPS), "-i", patron]
+        fc.append(f"[{n_in}:v]format=rgba,setpts=PTS-STARTPTS+{k0}/{FPS}/TB[te{k}]")
+        fc.append(f"[{ult}][te{k}]overlay={x}:{y}:eof_action=pass:format=auto[tt{k}]")
+        ult = f"tt{k}"
+    fc.append(f"[{ult}]subtitles={rel(ass)}:fontsdir=fuentes,format=yuv420p[vout]")
 
     if reel:
         fc = fc_reel
     amix = ["[0:a]"]
-    base = 1 + len(imagenes)
+    base = entradas.count("-i")
     # Cam shot al entrar cada imagen y swoosh al zoom-in de cada título
     sonidos = [(im["a"], "recursos/cam shot.wav") for im in imagenes if im["cam_shot"]] + \
               ([(0.0, "recursos/cam shot.wav")] if dec.get("cam_shot_inicio") else []) + \
